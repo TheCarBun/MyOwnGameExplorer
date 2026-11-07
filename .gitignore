@@ -1,5 +1,5 @@
 __pycache__/
-.icon_cache/
+cache/
 .venv/
 logs/
 .todo

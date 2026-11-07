@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 
 from PIL import Image, ImageTk
@@ -8,16 +9,21 @@ from logger import get_logger
 
 log = get_logger("icons")
 
-CACHE_DIR = Path(__file__).parent.parent / ".icon_cache"
-CACHE_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path(__file__).parent.parent / "cache" / "icons"
 
 # Used when an exe has no icon resource at all
 PLACEHOLDER = Image.new("RGBA", (128, 128), (60, 60, 60, 255))
 
 
 def _cache_path(exe_path, size):
-    # Hash the full path so two games with the same exe name don't collide
-    key = hashlib.md5(str(exe_path).encode("utf-8")).hexdigest()
+    exe_path = Path(exe_path)
+    identity = os.path.normcase(str(exe_path.resolve()))
+    try:
+        stat = exe_path.stat()
+        identity += f":{stat.st_size}:{stat.st_mtime_ns}"
+    except OSError:
+        identity += ":missing"
+    key = hashlib.md5(identity.encode("utf-8")).hexdigest()
     return CACHE_DIR / f"{key}_{size}.png"
 
 
@@ -33,10 +39,11 @@ def _extract_pil_icon(exe_path):
 def get_icon_image(exe_path, size=128):
     cached = _cache_path(exe_path, size)
 
-    if cached.exists():
+    try:
+        with Image.open(cached) as cached_image:
+            img = cached_image.copy()
         log.debug("Cache hit for %s", Path(exe_path).name)
-        img = Image.open(cached)
-    else:
+    except (OSError, ValueError):
         log.debug("Extracting icon from %s", Path(exe_path).name)
         img = _extract_pil_icon(exe_path)
         if img is None:
@@ -44,6 +51,7 @@ def get_icon_image(exe_path, size=128):
                         Path(exe_path).name)
             img = PLACEHOLDER.copy()
         img = img.resize((size, size), Image.LANCZOS)
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
         img.save(cached)
 
     return ImageTk.PhotoImage(img)
