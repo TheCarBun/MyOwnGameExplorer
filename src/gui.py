@@ -14,7 +14,7 @@ CARD_BG = "#2b2b2b"
 
 
 class GameLauncherWindow(tk.Tk):
-    def __init__(self, games, columns=5, icon_size=128):
+    def __init__(self, games, on_refresh, columns=5, icon_size=128):
         super().__init__()
         self.title("Game Launcher")
         self.geometry("1000x700")
@@ -25,7 +25,32 @@ class GameLauncherWindow(tk.Tk):
         self.icon_size = icon_size
         self.images = []  # keeps PhotoImage references alive
 
+        toolbar = tk.Frame(self, bg=BG)
+        toolbar.pack(fill="x", padx=8, pady=8)
+        self.refresh_button = ttk.Button(
+            toolbar, text="Refresh", command=on_refresh)
+        self.refresh_button.pack(side="left")
+        self.status_label = tk.Label(toolbar, text="", fg="white", bg=BG)
+        self.status_label.pack(side="left", padx=8)
+
         self._build_scroll_area()
+        self._build_cards()
+
+    def set_scanning(self, scanning):
+        self.refresh_button.configure(
+            state="disabled" if scanning else "normal",
+            text="Refreshing..." if scanning else "Refresh",
+        )
+        self.set_status("Scanning..." if scanning else "")
+
+    def set_status(self, message):
+        self.status_label.configure(text=message)
+
+    def set_games(self, games):
+        for card in self.grid_frame.winfo_children():
+            card.destroy()
+        self.games = games
+        self.images.clear()
         self._build_cards()
 
     def _build_scroll_area(self):
