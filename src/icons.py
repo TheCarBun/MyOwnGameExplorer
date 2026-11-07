@@ -2,7 +2,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageOps, ImageTk
 from icoextract import IconExtractor, IconExtractorError
 
 from logger import get_logger
@@ -17,7 +17,7 @@ PLACEHOLDER = Image.new("RGBA", (128, 128), (60, 60, 60, 255))
 
 def _cache_path(exe_path, size):
     exe_path = Path(exe_path)
-    identity = os.path.normcase(str(exe_path.resolve()))
+    identity = "tile-v2:" + os.path.normcase(str(exe_path.resolve()))
     try:
         stat = exe_path.stat()
         identity += f":{stat.st_size}:{stat.st_mtime_ns}"
@@ -25,6 +25,20 @@ def _cache_path(exe_path, size):
         identity += ":missing"
     key = hashlib.md5(identity.encode("utf-8")).hexdigest()
     return CACHE_DIR / f"{key}_{size}.png"
+
+
+def _normalize_icon(img, size):
+    img = img.convert("RGBA")
+    alpha_bounds = img.getchannel("A").getbbox()
+    if alpha_bounds:
+        img = img.crop(alpha_bounds)
+
+    content = ImageOps.contain(
+        img, (max(1, size - 16), max(1, size - 16)), Image.Resampling.LANCZOS)
+    tile = Image.new("RGBA", (size, size), (39, 51, 66, 255))
+    position = ((size - content.width) // 2, (size - content.height) // 2)
+    tile.alpha_composite(content, position)
+    return tile
 
 
 def _extract_pil_icon(exe_path):
@@ -50,7 +64,7 @@ def get_icon_image(exe_path, size=128):
             log.warning("No usable icon in %s, using placeholder",
                         Path(exe_path).name)
             img = PLACEHOLDER.copy()
-        img = img.resize((size, size), Image.LANCZOS)
+        img = _normalize_icon(img, size)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         img.save(cached)
 

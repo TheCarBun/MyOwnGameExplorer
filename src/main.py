@@ -1,9 +1,12 @@
+import os
 import queue
 import pathlib
 import sys
 import threading
+from pathlib import Path
 
 from logger import get_logger
+from models import GameEntry
 from scan import find_games, get_product_name
 from gui import GameLauncherWindow
 
@@ -15,11 +18,29 @@ def handle_uncaught(exc_type, exc_value, exc_tb):
     log.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
 
 
-def load_games(root, force_refresh=False):
+def load_games(
+        root: Path, force_refresh: bool = False) -> list[GameEntry]:
     games = []
-    for _, exe in find_games(root, force_refresh=force_refresh):
-        games.append((get_product_name(exe), exe))
+    for folder, exe in find_games(root, force_refresh=force_refresh):
+        games.append(GameEntry(
+            get_product_name(exe), exe, folder, _folder_size(folder)))
     return games
+
+
+def _folder_size(folder: Path) -> int:
+    total = 0
+
+    def on_walk_error(error):
+        log.warning("Unable to read folder while calculating size: %s", error)
+
+    for current, _, filenames in os.walk(folder, onerror=on_walk_error):
+        for filename in filenames:
+            path = pathlib.Path(current) / filename
+            try:
+                total += path.stat().st_size
+            except OSError as exc:
+                log.warning("Unable to read file size for %s: %s", path, exc)
+    return total
 
 
 def main():
