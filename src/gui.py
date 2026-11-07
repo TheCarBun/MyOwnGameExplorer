@@ -1,7 +1,9 @@
 from collections.abc import Callable, Sequence
+from datetime import datetime
 import json
 import math
 import pathlib
+import re
 import subprocess
 import tkinter as tk
 from tkinter import ttk
@@ -32,6 +34,37 @@ SORT_OPTIONS = (
     "Size (smallest)",
 )
 CONFIG_PATH = pathlib.Path(__file__).parent.parent / "config.json"
+DEFAULT_UI_TEXT = {
+    "window_title": "Arcade - Game Launcher",
+    "heading": "Your library",
+    "subtitle": "All your games, ready when you are.",
+    "refresh_button": "Refresh library",
+    "scanning_button": "Scanning...",
+    "scan_status": "Scanning your game folders...",
+    "sort_label": "SORT BY",
+    "details_heading": "GAME DETAILS",
+    "loading_text": "Finding your games",
+    "empty_library": "No games found. Check your game folder and refresh.",
+    "empty_search": "No games match your search.",
+    "scan_error": "Could not load games. Check the game folder and try again.",
+}
+DEFAULT_COLORS = {
+    "background": BG,
+    "surface": SURFACE,
+    "card": CARD_BG,
+    "card_hover": CARD_HOVER,
+    "text": TEXT,
+    "muted": MUTED,
+    "accent": ACCENT,
+    "icon_tile": "#273342",
+    "badge": "#203b38",
+    "button": "#2a3746",
+    "button_hover": "#35485b",
+    "button_disabled": "#202a36",
+    "accent_text": "#10221d",
+    "accent_hover": "#83ebc7",
+    "border": "#34475b",
+}
 
 
 def format_size(size_bytes: int) -> str:
@@ -47,8 +80,11 @@ class GameLauncherWindow(tk.Tk):
             self, games: Sequence[GameEntry],
             on_refresh: Callable[[], None]) -> None:
         super().__init__()
-        self.title("Arcade - Game Launcher")
-        self.configure(bg=BG)
+        self._settings = self._load_settings()
+        self.ui_text = self._settings["ui"]["text"]
+        self.colors = self._settings["ui"]["colors"]
+        self.title(self.ui_text["window_title"])
+        self.configure(bg=self.colors["background"])
         self.games = []
         self.on_refresh = on_refresh
         self.card_widgets = {}
@@ -69,7 +105,6 @@ class GameLauncherWindow(tk.Tk):
         self._scan_complete = False
         self._scan_error = None
         self._initial_fit_pending = True
-        self._settings = self._load_settings()
         self._initial_fit_pending = "window_size" not in self._settings
 
         screen_width = self.winfo_screenwidth()
@@ -104,104 +139,120 @@ class GameLauncherWindow(tk.Tk):
             log.warning("Unable to activate clam theme; using the default theme")
         style.configure(
             "Launcher.TButton",
-            background="#2a3746",
-            foreground=TEXT,
+            background=self.colors["button"],
+            foreground=self.colors["text"],
             borderwidth=0,
             padding=(12, 8),
             font=("Segoe UI", 9, "bold"),
         )
         style.map(
             "Launcher.TButton",
-            background=[("active", "#35485b"), ("disabled", "#202a36")],
-            foreground=[("disabled", MUTED)],
+            background=[
+                ("active", self.colors["button_hover"]),
+                ("disabled", self.colors["button_disabled"]),
+            ],
+            foreground=[("disabled", self.colors["muted"])],
         )
         style.configure(
             "Accent.TButton",
-            background=ACCENT,
-            foreground="#10221d",
+            background=self.colors["accent"],
+            foreground=self.colors["accent_text"],
             borderwidth=0,
             padding=(12, 8),
             font=("Segoe UI", 9, "bold"),
         )
-        style.map("Accent.TButton", background=[("active", "#83ebc7")])
+        style.map(
+            "Accent.TButton",
+            background=[("active", self.colors["accent_hover"])])
         style.configure(
             "Launcher.TCombobox",
-            fieldbackground=SURFACE,
-            background=SURFACE,
-            foreground=TEXT,
-            arrowcolor=ACCENT,
+            fieldbackground=self.colors["surface"],
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            arrowcolor=self.colors["accent"],
             padding=8,
         )
         style.map(
             "Launcher.TCombobox",
-            fieldbackground=[("readonly", SURFACE), ("focus", SURFACE)],
-            foreground=[("readonly", TEXT), ("focus", TEXT)],
-            selectbackground=[("readonly", SURFACE)],
-            selectforeground=[("readonly", TEXT)],
+            fieldbackground=[
+                ("readonly", self.colors["surface"]),
+                ("focus", self.colors["surface"]),
+            ],
+            foreground=[
+                ("readonly", self.colors["text"]),
+                ("focus", self.colors["text"]),
+            ],
+            selectbackground=[("readonly", self.colors["surface"])],
+            selectforeground=[("readonly", self.colors["text"])],
         )
-        self.option_add("*TCombobox*Listbox.background", SURFACE)
-        self.option_add("*TCombobox*Listbox.foreground", TEXT)
-        self.option_add("*TCombobox*Listbox.selectBackground", "#35485b")
-        self.option_add("*TCombobox*Listbox.selectForeground", TEXT)
+        self.option_add("*TCombobox*Listbox.background", self.colors["surface"])
+        self.option_add("*TCombobox*Listbox.foreground", self.colors["text"])
+        self.option_add(
+            "*TCombobox*Listbox.selectBackground",
+            self.colors["button_hover"])
+        self.option_add(
+            "*TCombobox*Listbox.selectForeground", self.colors["text"])
         style.configure(
             "Launcher.TEntry",
-            fieldbackground=SURFACE,
-            foreground=TEXT,
-            insertcolor=TEXT,
+            fieldbackground=self.colors["surface"],
+            foreground=self.colors["text"],
+            insertcolor=self.colors["text"],
             padding=10,
         )
         style.configure(
             "Launcher.Vertical.TScrollbar",
-            background=SURFACE,
-            troughcolor=BG,
-            bordercolor=BG,
-            arrowcolor=MUTED,
+            background=self.colors["surface"],
+            troughcolor=self.colors["background"],
+            bordercolor=self.colors["background"],
+            arrowcolor=self.colors["muted"],
         )
         style.configure(
             "Launcher.Horizontal.TProgressbar",
-            troughcolor=SURFACE,
-            background=ACCENT,
+            troughcolor=self.colors["surface"],
+            background=self.colors["accent"],
             borderwidth=0,
-            lightcolor=ACCENT,
-            darkcolor=ACCENT,
+            lightcolor=self.colors["accent"],
+            darkcolor=self.colors["accent"],
         )
 
     def _build_layout(self):
-        content = tk.Frame(self, bg=BG)
+        content = tk.Frame(self, bg=self.colors["background"])
         content.pack(fill="both", expand=True, padx=26, pady=(22, 16))
 
-        header = tk.Frame(content, bg=BG)
+        header = tk.Frame(content, bg=self.colors["background"])
         header.pack(fill="x", pady=(0, 20))
-        title_block = tk.Frame(header, bg=BG)
+        title_block = tk.Frame(header, bg=self.colors["background"])
         title_block.pack(side="left", fill="x", expand=True)
         tk.Label(
             title_block,
-            text="Your library",
-            fg=TEXT,
-            bg=BG,
+            text=self.ui_text["heading"],
+            fg=self.colors["text"],
+            bg=self.colors["background"],
             font=("Segoe UI Semibold", 25),
         ).pack(anchor="w")
         tk.Label(
             title_block,
-            text="All your games, ready when you are.",
-            fg=MUTED,
-            bg=BG,
+            text=self.ui_text["subtitle"],
+            fg=self.colors["muted"],
+            bg=self.colors["background"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(2, 0))
         self.refresh_button = ttk.Button(
             header,
-            text="Refresh library",
+            text=self.ui_text["refresh_button"],
             style="Launcher.TButton",
             command=self.on_refresh,
         )
         self.refresh_button.pack(side="right", anchor="center")
 
-        toolbar = tk.Frame(content, bg=BG)
+        toolbar = tk.Frame(content, bg=self.colors["background"])
         toolbar.pack(fill="x", pady=(0, 16))
-        search_wrap = tk.Frame(toolbar, bg=SURFACE, padx=2, pady=2)
+        search_wrap = tk.Frame(
+            toolbar, bg=self.colors["surface"], padx=2, pady=2)
         search_wrap.pack(side="left", fill="x", expand=True, padx=(0, 16))
         tk.Label(
-            search_wrap, text="⌕", fg=ACCENT, bg=SURFACE,
+            search_wrap, text="⌕", fg=self.colors["accent"],
+            bg=self.colors["surface"],
             font=("Segoe UI", 16),
         ).pack(side="left", padx=(10, 4))
         self.search_var = tk.StringVar()
@@ -216,7 +267,8 @@ class GameLauncherWindow(tk.Tk):
         self.sort_var = tk.StringVar(
             value=self._settings.get("sort_order", SORT_OPTIONS[0]))
         tk.Label(
-            toolbar, text="SORT BY", fg=MUTED, bg=BG,
+            toolbar, text=self.ui_text["sort_label"],
+            fg=self.colors["muted"], bg=self.colors["background"],
             font=("Segoe UI", 8, "bold"),
         ).pack(side="left", padx=(0, 8))
         self.sort_box = ttk.Combobox(
@@ -231,11 +283,12 @@ class GameLauncherWindow(tk.Tk):
         self.sort_box.bind(
             "<<ComboboxSelected>>", lambda *_: self._on_sort_changed())
 
-        library = tk.Frame(content, bg=BG)
+        library = tk.Frame(content, bg=self.colors["background"])
         library.pack(fill="both", expand=True)
         library.grid_rowconfigure(0, weight=1)
         library.grid_columnconfigure(0, weight=1)
-        self.canvas = tk.Canvas(library, bg=BG, highlightthickness=0,
+        self.canvas = tk.Canvas(library, bg=self.colors["background"],
+                                highlightthickness=0,
                                 borderwidth=0)
         self.scrollbar = ttk.Scrollbar(
             library,
@@ -243,7 +296,7 @@ class GameLauncherWindow(tk.Tk):
             command=self.canvas.yview,
             style="Launcher.Vertical.TScrollbar",
         )
-        self.grid_frame = tk.Frame(self.canvas, bg=BG)
+        self.grid_frame = tk.Frame(self.canvas, bg=self.colors["background"])
         self.grid_frame.bind(
             "<Configure>",
             lambda *_: self.canvas.configure(
@@ -258,9 +311,9 @@ class GameLauncherWindow(tk.Tk):
         self.scrollbar.grid_remove()
         self.details_panel = tk.Frame(
             library,
-            bg=SURFACE,
+            bg=self.colors["surface"],
             highlightthickness=1,
-            highlightbackground="#34475b",
+            highlightbackground=self.colors["border"],
             padx=22,
             pady=20,
         )
@@ -270,33 +323,35 @@ class GameLauncherWindow(tk.Tk):
         self._build_details_panel()
         self.bind_all("<MouseWheel>", self._on_mousewheel)
 
-        footer = tk.Frame(content, bg=BG)
+        footer = tk.Frame(content, bg=self.colors["background"])
         footer.pack(fill="x", pady=(12, 0))
         self.status_label = tk.Label(
             footer,
-            text="Loading your library...",
-            fg=MUTED,
-            bg=BG,
+            text="",
+            fg=self.colors["muted"],
+            bg=self.colors["background"],
             font=("Segoe UI", 9),
         )
         self.status_label.pack(side="left")
         self.count_label = tk.Label(
-            footer, text="", fg=MUTED, bg=BG, font=("Segoe UI", 9))
+            footer, text="", fg=self.colors["muted"],
+            bg=self.colors["background"], font=("Segoe UI", 9))
         self.count_label.pack(side="right")
         self.empty_state = tk.Label(
             self.grid_frame,
             text="",
-            fg=MUTED,
-            bg=BG,
+            fg=self.colors["muted"],
+            bg=self.colors["background"],
             font=("Segoe UI", 12),
         )
         self.empty_state.place_forget()
-        self.loading_frame = tk.Frame(self.grid_frame, bg=BG)
+        self.loading_frame = tk.Frame(
+            self.grid_frame, bg=self.colors["background"])
         tk.Label(
             self.loading_frame,
-            text="Finding your games",
-            fg=TEXT,
-            bg=BG,
+            text=self.ui_text["loading_text"],
+            fg=self.colors["text"],
+            bg=self.colors["background"],
             font=("Segoe UI Semibold", 13),
         ).pack(pady=(0, 12))
         self.loading_bar = ttk.Progressbar(
@@ -312,14 +367,14 @@ class GameLauncherWindow(tk.Tk):
         try:
             settings = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return {}
+            settings = {}
         except (OSError, ValueError):
             log.exception("Unable to read UI settings from %s", CONFIG_PATH)
-            return {}
+            settings = {}
 
         if not isinstance(settings, dict):
             log.warning("Invalid UI settings in %s; using defaults", CONFIG_PATH)
-            return {}
+            settings = {}
         size = settings.get("window_size")
         if (isinstance(size, list) and len(size) == 2
                 and all(type(value) is int and value > 0 for value in size)):
@@ -328,6 +383,35 @@ class GameLauncherWindow(tk.Tk):
             settings.pop("window_size", None)
         if settings.get("sort_order") not in SORT_OPTIONS:
             settings.pop("sort_order", None)
+        ui = settings.get("ui")
+        if not isinstance(ui, dict):
+            ui = {}
+        text = ui.get("text")
+        if not isinstance(text, dict):
+            text = {}
+        normalized_text = dict(DEFAULT_UI_TEXT)
+        for key in normalized_text:
+            value = text.get(key)
+            if isinstance(value, str) and value.strip():
+                normalized_text[key] = value.strip()
+            elif value is not None:
+                log.warning("Ignoring invalid ui.text.%s setting", key)
+
+        colors = ui.get("colors")
+        if not isinstance(colors, dict):
+            colors = {}
+        normalized_colors = dict(DEFAULT_COLORS)
+        for key in normalized_colors:
+            value = colors.get(key)
+            if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+                normalized_colors[key] = value
+            elif value is not None:
+                log.warning("Ignoring invalid ui.colors.%s setting", key)
+        settings["ui"] = {
+            **ui,
+            "text": normalized_text,
+            "colors": normalized_colors,
+        }
         return settings
 
     def _save_settings(self):
@@ -337,7 +421,9 @@ class GameLauncherWindow(tk.Tk):
             return
         if self._expected_window_size == tuple(size):
             return
-        settings = {"window_size": size, "sort_order": self.sort_var.get()}
+        settings = dict(self._settings)
+        settings["window_size"] = size
+        settings["sort_order"] = self.sort_var.get()
         temporary_path = CONFIG_PATH.with_suffix(".json.tmp")
         try:
             temporary_path.write_text(
@@ -391,10 +477,11 @@ class GameLauncherWindow(tk.Tk):
     def set_scanning(self, scanning):
         self.refresh_button.configure(
             state="disabled" if scanning else "normal",
-            text="Scanning..." if scanning else "Refresh library",
+            text=self.ui_text["scanning_button"] if scanning
+            else self.ui_text["refresh_button"],
         )
         if scanning:
-            self.set_status("Scanning your game folders...")
+            self.set_status(self.ui_text["scan_status"])
 
     def set_status(self, message):
         self.status_label.configure(text=message)
@@ -523,11 +610,11 @@ class GameLauncherWindow(tk.Tk):
             text=f"{len(games)} of {len(self.games)} games")
         if not games:
             if self._scan_error:
-                message = "Could not load games. Check the game folder and try again."
+                message = self.ui_text["scan_error"]
             elif query:
-                message = "No games match your search."
+                message = self.ui_text["empty_search"]
             else:
-                message = "No games found. Check your game folder and refresh."
+                message = self.ui_text["empty_library"]
             self.empty_state.configure(text=message)
             self.empty_state.place(relx=0.5, y=48, anchor="n")
             for key in self._visible_card_keys:
@@ -609,22 +696,24 @@ class GameLauncherWindow(tk.Tk):
     def _create_card(self, key: str) -> dict:
         card = tk.Frame(
             self.grid_frame,
-            bg=CARD_BG,
+            bg=self.colors["card"],
             width=self.card_width,
             height=self.card_height,
             highlightthickness=1,
-            highlightbackground="#293747",
+            highlightbackground=self.colors["border"],
         )
         icon_holder = tk.Frame(
-            card, bg="#273342", width=self.icon_size, height=self.icon_size)
+            card, bg=self.colors["icon_tile"],
+            width=self.icon_size, height=self.icon_size)
         icon_holder.pack(pady=(12, 8))
         icon_holder.pack_propagate(False)
-        icon_label = tk.Label(icon_holder, bg="#273342", borderwidth=0)
+        icon_label = tk.Label(
+            icon_holder, bg=self.colors["icon_tile"], borderwidth=0)
         icon_label.pack(fill="both", expand=True)
         name_label = tk.Label(
             card,
-            fg=TEXT,
-            bg=CARD_BG,
+            fg=self.colors["text"],
+            bg=self.colors["card"],
             wraplength=self.card_width - 24,
             height=2,
             justify="center",
@@ -633,15 +722,15 @@ class GameLauncherWindow(tk.Tk):
         name_label.pack(fill="x", padx=10)
         size_label = tk.Label(
             card,
-            fg=ACCENT,
-            bg="#203b38",
+            fg=self.colors["accent"],
+            bg=self.colors["badge"],
             padx=9,
             pady=3,
             font=("Segoe UI", 8, "bold"),
         )
         size_label.pack(pady=(5, 8))
 
-        actions = tk.Frame(card, bg=CARD_BG)
+        actions = tk.Frame(card, bg=self.colors["card"])
         actions.pack(fill="x", padx=9, side="bottom", pady=(0, 10))
         ttk.Button(
             actions,
@@ -657,14 +746,19 @@ class GameLauncherWindow(tk.Tk):
         ).pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         def set_card_color(color):
-            card.configure(bg=color, highlightbackground="#3b5368")
-            icon_label.configure(bg="#273342")
+            card.configure(
+                bg=color, highlightbackground=self.colors["border"])
+            icon_label.configure(bg=self.colors["icon_tile"])
+            icon_holder.configure(bg=self.colors["icon_tile"])
             name_label.configure(bg=color)
             actions.configure(bg=color)
 
         for widget in (card, icon_label, name_label, size_label, actions):
-            widget.bind("<Enter>", lambda *_: set_card_color(CARD_HOVER))
-            widget.bind("<Leave>", lambda *_: set_card_color(CARD_BG))
+            widget.bind(
+                "<Enter>",
+                lambda *_: set_card_color(self.colors["card_hover"]))
+            widget.bind(
+                "<Leave>", lambda *_: set_card_color(self.colors["card"]))
         return {
             "card": card,
             "icon": icon_label,
@@ -694,13 +788,15 @@ class GameLauncherWindow(tk.Tk):
         widgets["size"].configure(text=format_size(game.size_bytes))
         if refresh_icon or widgets.get("icon_size") != self.icon_size:
             try:
-                photo = get_icon_image(game.executable, self.icon_size)
+                photo = get_icon_image(
+                    game.executable, self.icon_size,
+                    background=self.colors["icon_tile"])
             except (OSError, ValueError, tk.TclError):
                 log.exception("Unable to load icon for %s", game.executable)
                 photo = None
             widgets["icon"].configure(
                 image=photo, text="" if photo is not None else "GAME",
-                fg=ACCENT, font=("Segoe UI", 10, "bold"))
+                fg=self.colors["accent"], font=("Segoe UI", 10, "bold"))
             widgets["icon"].image = photo
             widgets["icon_size"] = self.icon_size
 
@@ -713,10 +809,11 @@ class GameLauncherWindow(tk.Tk):
         self._show_details(game)
 
     def _build_details_panel(self) -> None:
-        header = tk.Frame(self.details_panel, bg=SURFACE)
+        header = tk.Frame(self.details_panel, bg=self.colors["surface"])
         header.pack(fill="x", pady=(0, 18))
         tk.Label(
-            header, text="GAME DETAILS", fg=ACCENT, bg=SURFACE,
+            header, text=self.ui_text["details_heading"],
+            fg=self.colors["accent"], bg=self.colors["surface"],
             font=("Segoe UI", 8, "bold"),
         ).pack(side="left")
         ttk.Button(
@@ -724,20 +821,30 @@ class GameLauncherWindow(tk.Tk):
             command=self._hide_details,
         ).pack(side="right")
 
+        identity = tk.Frame(self.details_panel, bg=self.colors["surface"])
+        identity.pack(fill="x", pady=(0, 18))
+        icon_holder = tk.Frame(
+            identity, bg=self.colors["icon_tile"], width=72, height=72)
+        icon_holder.pack(side="left", padx=(0, 14))
+        icon_holder.pack_propagate(False)
+        self.details_icon = tk.Label(
+            icon_holder, bg=self.colors["icon_tile"], borderwidth=0)
+        self.details_icon.pack(fill="both", expand=True)
+        self.details_icon.image = None
         self.detail_name = tk.Label(
-            self.details_panel, text="", fg=TEXT, bg=SURFACE,
-            wraplength=290, height=2, justify="left", anchor="nw",
-            font=("Segoe UI Semibold", 18),
+            identity, text="", fg=self.colors["text"],
+            bg=self.colors["surface"], wraplength=190, height=3,
+            justify="left", anchor="w", font=("Segoe UI Semibold", 16),
         )
-        self.detail_name.pack(fill="x", pady=(0, 20))
+        self.detail_name.pack(side="left", fill="x", expand=True)
         self.details_text = tk.Text(
             self.details_panel,
-            height=12,
+            height=14,
             wrap="word",
-            bg=SURFACE,
-            fg=TEXT,
-            insertbackground=TEXT,
-            selectbackground="#35485b",
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
+            selectbackground=self.colors["button_hover"],
             relief="flat",
             borderwidth=0,
             highlightthickness=0,
@@ -747,10 +854,13 @@ class GameLauncherWindow(tk.Tk):
             state="disabled",
         )
         self.details_text.tag_configure(
-            "heading", foreground=MUTED, font=("Segoe UI", 8, "bold"))
+            "heading",
+            foreground=self.colors["muted"],
+            font=("Segoe UI", 8, "bold"))
         self.details_text.pack(fill="x", anchor="nw")
         self._details_content = ""
-        actions = tk.Frame(self.details_panel, bg=SURFACE)
+        actions = tk.Frame(
+            self.details_panel, bg=self.colors["surface"])
         actions.pack(fill="x", side="bottom", pady=(16, 0))
         ttk.Button(
             actions, text="Open folder", style="Launcher.TButton",
@@ -764,18 +874,33 @@ class GameLauncherWindow(tk.Tk):
 
     def _show_details(self, game: GameEntry) -> None:
         self._selected_game = game
-        if self.detail_name.cget("text") != game.name:
-            self.detail_name.configure(text=game.name)
         try:
-            executable_size = game.executable.stat().st_size
+            executable_stat = game.executable.stat()
         except OSError as exc:
             log.warning("Unable to read executable size for %s: %s",
                         game.executable, exc)
-            executable_size = None
+            executable_stat = None
+        if self.detail_name.cget("text") != game.name:
+            self.detail_name.configure(text=game.name)
+        try:
+            photo = get_icon_image(
+                game.executable, 72,
+                background=self.colors["icon_tile"])
+        except (OSError, ValueError, tk.TclError):
+            log.exception("Unable to load details icon for %s",
+                          game.executable)
+            photo = None
+        self.details_icon.configure(
+            image=photo, text="" if photo is not None else "GAME",
+            fg=self.colors["accent"], font=("Segoe UI", 8, "bold"))
+        self.details_icon.image = photo
         details = (
             ("FOLDER SIZE", f"{format_size(game.size_bytes)} (total file size)"),
-            ("EXECUTABLE SIZE", format_size(executable_size)
-             if executable_size is not None else "Unavailable"),
+            ("EXECUTABLE SIZE", format_size(executable_stat.st_size)
+             if executable_stat is not None else "Unavailable"),
+            ("MODIFIED", datetime.fromtimestamp(executable_stat.st_mtime)
+             .strftime("%Y-%m-%d %H:%M")
+             if executable_stat is not None else "Unavailable"),
             ("GAME FOLDER", str(game.folder)),
             ("EXECUTABLE", str(game.executable)),
         )

@@ -3,5 +3,38 @@
     1920,
     1009
   ],
-  "sort_order": "Size (largest)"
+  "sort_order": "Size (largest)",
+  "ui": {
+    "text": {
+      "window_title": "BunLauncher",
+      "heading": "Welcome",
+      "subtitle": "hehe my own game launcher...",
+      "refresh_button": "Refresh library",
+      "scanning_button": "Scanning...",
+      "scan_status": "Scanning your game folders...",
+      "sort_label": "SORT BY",
+      "details_heading": "GAME DETAILS",
+      "loading_text": "Locating game executables",
+      "empty_library": "No games found. Check your game folder and refresh.",
+      "empty_search": "No games match your search.",
+      "scan_error": "Could not load games. Check the game folder and try again."
+    },
+    "colors": {
+      "background": "#10151d",
+      "surface": "#171f2b",
+      "card": "#1b2532",
+      "card_hover": "#243242",
+      "text": "#eef3f8",
+      "muted": "#93a4b7",
+      "accent": "#61dfb3",
+      "icon_tile": "#273342",
+      "badge": "#203b38",
+      "button": "#2a3746",
+      "button_hover": "#35485b",
+      "button_disabled": "#202a36",
+      "accent_text": "#10221d",
+      "accent_hover": "#83ebc7",
+      "border": "#34475b"
+    }
+  }
 }
