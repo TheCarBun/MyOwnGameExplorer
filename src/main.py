@@ -77,7 +77,7 @@ def main():
         scan_running = False
         app.set_scanning(False)
         if error is not None:
-            app.set_status(f"Scan failed: {error}")
+            app.set_scan_error(str(error))
         else:
             app.set_games(games)
             app.set_status(f"Found {len(games)} games")

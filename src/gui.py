@@ -66,6 +66,8 @@ class GameLauncherWindow(tk.Tk):
         self._scrollbar_after = None
         self._grid_size = None
         self._details_panel_width = None
+        self._scan_complete = False
+        self._scan_error = None
         self._initial_fit_pending = True
         self._settings = self._load_settings()
         self._initial_fit_pending = "window_size" not in self._settings
@@ -83,7 +85,11 @@ class GameLauncherWindow(tk.Tk):
 
         self._setup_styles()
         self._build_layout()
-        self.set_games(games)
+        if games:
+            self.set_games(games)
+        else:
+            self._render_cards()
+            self.loading_bar.start(12)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<Configure>", self._queue_save_settings, add="+")
         self.bind("<Configure>", self._on_window_configure, add="+")
@@ -150,6 +156,14 @@ class GameLauncherWindow(tk.Tk):
             troughcolor=BG,
             bordercolor=BG,
             arrowcolor=MUTED,
+        )
+        style.configure(
+            "Launcher.Horizontal.TProgressbar",
+            troughcolor=SURFACE,
+            background=ACCENT,
+            borderwidth=0,
+            lightcolor=ACCENT,
+            darkcolor=ACCENT,
         )
 
     def _build_layout(self):
@@ -277,6 +291,22 @@ class GameLauncherWindow(tk.Tk):
             font=("Segoe UI", 12),
         )
         self.empty_state.place_forget()
+        self.loading_frame = tk.Frame(self.grid_frame, bg=BG)
+        tk.Label(
+            self.loading_frame,
+            text="Finding your games",
+            fg=TEXT,
+            bg=BG,
+            font=("Segoe UI Semibold", 13),
+        ).pack(pady=(0, 12))
+        self.loading_bar = ttk.Progressbar(
+            self.loading_frame,
+            mode="indeterminate",
+            length=190,
+            style="Launcher.Horizontal.TProgressbar",
+        )
+        self.loading_bar.pack()
+        self.loading_frame.place_forget()
 
     def _load_settings(self):
         try:
@@ -370,6 +400,9 @@ class GameLauncherWindow(tk.Tk):
         self.status_label.configure(text=message)
 
     def set_games(self, games: Sequence[GameEntry]) -> None:
+        self._scan_complete = True
+        self._scan_error = None
+        self.loading_bar.stop()
         self.games = list(games)
         current_keys = {self._game_key(game) for game in self.games}
         removed_keys = self.card_widgets.keys() - current_keys
@@ -390,6 +423,14 @@ class GameLauncherWindow(tk.Tk):
         if self._initial_fit_pending:
             self._fit_to_library()
         self._render_cards()
+
+    def set_scan_error(self, message: str) -> None:
+        self.set_status(f"Scan failed: {message}")
+        if not self._scan_complete:
+            self._scan_complete = True
+            self._scan_error = message
+            self.loading_bar.stop()
+            self._render_cards()
 
     @staticmethod
     def _game_key(game: GameEntry) -> str:
@@ -453,6 +494,15 @@ class GameLauncherWindow(tk.Tk):
         width = self.canvas.winfo_width()
         if width <= 1:
             return
+        if not self._scan_complete:
+            self.empty_state.place_forget()
+            height = max(170, self.canvas.winfo_height())
+            self._set_grid_size(width, height)
+            self.loading_frame.place(relx=0.5, rely=0.5, anchor="center")
+            self._queue_scrollbar_update(height)
+            return
+
+        self.loading_frame.place_forget()
         query = self.search_var.get().strip().casefold()
         games = [
             game for game in self.games
@@ -472,8 +522,12 @@ class GameLauncherWindow(tk.Tk):
         self.count_label.configure(
             text=f"{len(games)} of {len(self.games)} games")
         if not games:
-            message = "No games match your search." if query else (
-                "No games found. Check your game folder and refresh.")
+            if self._scan_error:
+                message = "Could not load games. Check the game folder and try again."
+            elif query:
+                message = "No games match your search."
+            else:
+                message = "No games found. Check your game folder and refresh."
             self.empty_state.configure(text=message)
             self.empty_state.place(relx=0.5, y=48, anchor="n")
             for key in self._visible_card_keys:
@@ -768,6 +822,7 @@ class GameLauncherWindow(tk.Tk):
             self.set_status(f"Could not open folder: {exc}")
 
     def _on_close(self):
+        self.loading_bar.stop()
         if self._geometry_after is not None:
             self.after_cancel(self._geometry_after)
         if self._layout_after is not None:
