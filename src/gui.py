@@ -60,10 +60,12 @@ class GameLauncherWindow(tk.Tk):
         self.card_height = 252
         self.icon_size = 96
         self._geometry_after = None
+        self._expected_window_size = None
         self._layout_after = None
         self._search_after = None
         self._scrollbar_after = None
         self._grid_size = None
+        self._details_panel_width = None
         self._initial_fit_pending = True
         self._settings = self._load_settings()
         self._initial_fit_pending = "window_size" not in self._settings
@@ -72,7 +74,8 @@ class GameLauncherWindow(tk.Tk):
         screen_height = self.winfo_screenheight()
         self.minsize(min(760, screen_width), min(520, screen_height))
         if self._initial_fit_pending:
-            self._set_centered_geometry(1000, 700)
+            self._set_centered_geometry(
+                min(1000, screen_width), min(700, screen_height))
         else:
             width, height = self._settings["window_size"]
             self._set_centered_geometry(
@@ -83,6 +86,7 @@ class GameLauncherWindow(tk.Tk):
         self.set_games(games)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<Configure>", self._queue_save_settings, add="+")
+        self.bind("<Configure>", self._on_window_configure, add="+")
         self.bind("<Control-f>", lambda *_: self._focus_search())
         self.bind("<Control-F>", lambda *_: self._focus_search())
 
@@ -247,9 +251,8 @@ class GameLauncherWindow(tk.Tk):
             pady=20,
         )
         self.details_panel.grid_propagate(False)
-        library.grid_columnconfigure(1, weight=0, minsize=0)
         library.grid_columnconfigure(2, weight=0, minsize=0)
-        library.bind("<Configure>", self._on_library_configure)
+        library.grid_columnconfigure(1, weight=0, minsize=0)
         self._build_details_panel()
         self.bind_all("<MouseWheel>", self._on_mousewheel)
 
@@ -302,17 +305,26 @@ class GameLauncherWindow(tk.Tk):
         size = [self.winfo_width(), self.winfo_height()]
         if min(size) <= 1:
             return
+        if self._expected_window_size == tuple(size):
+            return
         settings = {"window_size": size, "sort_order": self.sort_var.get()}
         temporary_path = CONFIG_PATH.with_suffix(".json.tmp")
         try:
             temporary_path.write_text(
                 json.dumps(settings, indent=2), encoding="utf-8")
             temporary_path.replace(CONFIG_PATH)
+            self._expected_window_size = tuple(size)
         except OSError:
             log.exception("Unable to save UI settings to %s", CONFIG_PATH)
 
+    def _on_window_configure(self, event):
+        if event.widget is self:
+            self._set_details_panel_width(event.width)
+
     def _queue_save_settings(self, event):
         if event.widget is not self:
+            return
+        if (event.width, event.height) == self._expected_window_size:
             return
         if self._geometry_after is not None:
             self.after_cancel(self._geometry_after)
@@ -326,6 +338,7 @@ class GameLauncherWindow(tk.Tk):
         x = max(0, (screen_width - width) // 2)
         y = max(0, (screen_height - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
+        self._expected_window_size = (width, height)
 
     def _fit_to_library(self):
         screen_width = self.winfo_screenwidth()
@@ -409,20 +422,22 @@ class GameLauncherWindow(tk.Tk):
         self._layout_after = None
         self._render_cards()
 
-    def _on_library_configure(self, event):
-        if self.details_panel.winfo_manager() == "grid":
-            self._position_details_panel(event.width)
-
-    def _position_details_panel(self, width):
-        panel_width = min(360, max(280, width // 3))
-        if int(self.details_panel.cget("width")) != panel_width:
-            self.details_panel.configure(width=panel_width)
-        for label in (
-                self.detail_name, self.detail_size, self.detail_exe_size,
-                self.detail_folder, self.detail_executable):
-            wraplength = max(180, panel_width - 48)
-            if int(label.cget("wraplength")) != wraplength:
-                label.configure(wraplength=wraplength)
+    def _set_details_panel_width(self, window_width):
+        panel_width = min(360, max(280, window_width // 5))
+        if panel_width == self._details_panel_width:
+            return
+        self._details_panel_width = panel_width
+        self.details_panel.configure(width=panel_width)
+        library = self.details_panel.master
+        library.grid_columnconfigure(
+            2,
+            weight=0,
+            minsize=panel_width + 12
+            if self.details_panel.winfo_manager() == "grid" else 0,
+        )
+        wraplength = max(180, panel_width - 48)
+        if int(self.detail_name.cget("wraplength")) != wraplength:
+            self.detail_name.configure(wraplength=wraplength)
 
     def _on_mousewheel(self, event):
         x = self.canvas.winfo_rootx()
@@ -511,9 +526,6 @@ class GameLauncherWindow(tk.Tk):
             self.card_widgets[key]["card"].place_forget()
         self._visible_card_keys = visible_keys
         self._queue_scrollbar_update(height)
-        log.debug("Positioned %d of %d cards across %d columns",
-                  len(games), len(self.games), self.columns)
-
     def _set_grid_size(self, width: int, height: int) -> None:
         size = (width, height)
         if size == self._grid_size:
@@ -660,14 +672,30 @@ class GameLauncherWindow(tk.Tk):
 
         self.detail_name = tk.Label(
             self.details_panel, text="", fg=TEXT, bg=SURFACE,
-            wraplength=290, justify="left", anchor="w",
+            wraplength=290, height=2, justify="left", anchor="nw",
             font=("Segoe UI Semibold", 18),
         )
         self.detail_name.pack(fill="x", pady=(0, 20))
-        self.detail_size = self._detail_value("FOLDER SIZE")
-        self.detail_exe_size = self._detail_value("EXECUTABLE SIZE")
-        self.detail_folder = self._detail_value("GAME FOLDER")
-        self.detail_executable = self._detail_value("EXECUTABLE")
+        self.details_text = tk.Text(
+            self.details_panel,
+            height=12,
+            wrap="word",
+            bg=SURFACE,
+            fg=TEXT,
+            insertbackground=TEXT,
+            selectbackground="#35485b",
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            font=("Segoe UI", 9),
+            padx=0,
+            pady=0,
+            state="disabled",
+        )
+        self.details_text.tag_configure(
+            "heading", foreground=MUTED, font=("Segoe UI", 8, "bold"))
+        self.details_text.pack(fill="x", anchor="nw")
+        self._details_content = ""
         actions = tk.Frame(self.details_panel, bg=SURFACE)
         actions.pack(fill="x", side="bottom", pady=(16, 0))
         ttk.Button(
@@ -680,44 +708,49 @@ class GameLauncherWindow(tk.Tk):
         ).pack(fill="x")
         self._selected_game = None
 
-    def _detail_value(self, label: str) -> tk.Label:
-        tk.Label(
-            self.details_panel, text=label, fg=MUTED, bg=SURFACE,
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor="w", pady=(10, 3))
-        value = tk.Label(
-            self.details_panel, text="", fg=TEXT, bg=SURFACE,
-            wraplength=290, justify="left", anchor="w",
-            font=("Segoe UI", 9),
-        )
-        value.pack(fill="x")
-        return value
-
     def _show_details(self, game: GameEntry) -> None:
         self._selected_game = game
-        self.detail_name.configure(text=game.name)
-        self.detail_size.configure(
-            text=f"{format_size(game.size_bytes)} (total file size)")
+        if self.detail_name.cget("text") != game.name:
+            self.detail_name.configure(text=game.name)
         try:
             executable_size = game.executable.stat().st_size
         except OSError as exc:
             log.warning("Unable to read executable size for %s: %s",
                         game.executable, exc)
             executable_size = None
-        self.detail_exe_size.configure(
-            text=format_size(executable_size) if executable_size is not None
-            else "Unavailable")
-        self.detail_folder.configure(text=str(game.folder))
-        self.detail_executable.configure(text=str(game.executable))
-        library = self.details_panel.master
-        self._position_details_panel(library.winfo_width())
+        details = (
+            ("FOLDER SIZE", f"{format_size(game.size_bytes)} (total file size)"),
+            ("EXECUTABLE SIZE", format_size(executable_size)
+             if executable_size is not None else "Unavailable"),
+            ("GAME FOLDER", str(game.folder)),
+            ("EXECUTABLE", str(game.executable)),
+        )
+        content = "\n\n".join(
+            f"{heading}\n{value}" for heading, value in details) + "\n"
+        if content != self._details_content:
+            self.details_text.configure(state="normal")
+            self.details_text.replace("1.0", "end", content)
+            self.details_text.tag_remove("heading", "1.0", "end")
+            offset = 0
+            for heading, value in details:
+                start = f"1.0 + {offset} chars"
+                end = f"1.0 + {offset + len(heading)} chars"
+                self.details_text.tag_add("heading", start, end)
+                offset += len(heading) + 1 + len(value) + 2
+            self.details_text.configure(state="disabled")
+            self._details_content = content
+        self._set_details_panel_width(self.winfo_width())
         if self.details_panel.winfo_manager() != "grid":
+            library = self.details_panel.master
+            library.grid_columnconfigure(
+                2, weight=0, minsize=self._details_panel_width + 12)
             self.details_panel.grid(
                 row=0, column=2, sticky="nsew", padx=(12, 0), pady=8)
         self.canvas.focus_set()
 
     def _hide_details(self) -> None:
         self.details_panel.grid_remove()
+        self.details_panel.master.grid_columnconfigure(2, minsize=0)
 
     def _open_selected_folder(self) -> None:
         if self._selected_game is not None:

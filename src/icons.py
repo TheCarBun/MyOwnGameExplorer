@@ -13,6 +13,7 @@ CACHE_DIR = Path(__file__).parent.parent / "cache" / "icons"
 
 # Used when an exe has no icon resource at all
 PLACEHOLDER = Image.new("RGBA", (128, 128), (60, 60, 60, 255))
+_photo_cache = {}
 
 
 def _cache_path(exe_path, size):
@@ -52,6 +53,9 @@ def _extract_pil_icon(exe_path):
 
 def get_icon_image(exe_path, size=128):
     cached = _cache_path(exe_path, size)
+    cache_key = str(cached)
+    if cache_key in _photo_cache:
+        return _photo_cache[cache_key]
 
     try:
         with Image.open(cached) as cached_image:
@@ -68,4 +72,6 @@ def get_icon_image(exe_path, size=128):
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         img.save(cached)
 
-    return ImageTk.PhotoImage(img)
+    photo = ImageTk.PhotoImage(img)
+    _photo_cache[cache_key] = photo
+    return photo
