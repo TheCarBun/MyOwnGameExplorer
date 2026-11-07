@@ -65,8 +65,6 @@ DEFAULT_COLORS = {
     "accent_hover": "#83ebc7",
     "border": "#34475b",
 }
-
-
 def format_size(size_bytes: int) -> str:
     size = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -82,7 +80,8 @@ class GameLauncherWindow(tk.Tk):
         super().__init__()
         self._settings = self._load_settings()
         self.ui_text = self._settings["ui"]["text"]
-        self.colors = self._settings["ui"]["colors"]
+        self.colors = self._settings["ui"]["themes"][
+            self._settings["ui"]["theme"]]
         self.title(self.ui_text["window_title"])
         self.configure(bg=self.colors["background"])
         self.games = []
@@ -282,6 +281,23 @@ class GameLauncherWindow(tk.Tk):
         self.sort_box.pack(side="left")
         self.sort_box.bind(
             "<<ComboboxSelected>>", lambda *_: self._on_sort_changed())
+        tk.Label(
+            toolbar, text="THEME",
+            fg=self.colors["muted"], bg=self.colors["background"],
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side="left", padx=(16, 8))
+        self.theme_var = tk.StringVar(value=self._settings["ui"]["theme"])
+        self.theme_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.theme_var,
+            values=tuple(self._settings["ui"]["themes"]),
+            state="readonly",
+            width=12,
+            style="Launcher.TCombobox",
+        )
+        self.theme_box.pack(side="left")
+        self.theme_box.bind(
+            "<<ComboboxSelected>>", lambda *_: self._on_theme_changed())
 
         library = tk.Frame(content, bg=self.colors["background"])
         library.pack(fill="both", expand=True)
@@ -397,29 +413,53 @@ class GameLauncherWindow(tk.Tk):
             elif value is not None:
                 log.warning("Ignoring invalid ui.text.%s setting", key)
 
-        colors = ui.get("colors")
-        if not isinstance(colors, dict):
-            colors = {}
-        normalized_colors = dict(DEFAULT_COLORS)
-        for key in normalized_colors:
-            value = colors.get(key)
-            if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
-                normalized_colors[key] = value
-            elif value is not None:
-                log.warning("Ignoring invalid ui.colors.%s setting", key)
+        configured_themes = ui.get("themes")
+        normalized_themes = {}
+        if isinstance(configured_themes, dict):
+            for name, colors in configured_themes.items():
+                if not isinstance(name, str) or not name.strip():
+                    log.warning("Ignoring theme with an invalid name")
+                    continue
+                if not isinstance(colors, dict):
+                    log.warning("Ignoring invalid ui.themes.%s setting", name)
+                    continue
+                normalized_colors = dict(DEFAULT_COLORS)
+                for key in normalized_colors:
+                    value = colors.get(key)
+                    if (isinstance(value, str)
+                            and re.fullmatch(r"#[0-9a-fA-F]{6}", value)):
+                        normalized_colors[key] = value
+                    elif value is not None:
+                        log.warning(
+                            "Ignoring invalid ui.themes.%s.%s setting",
+                            name, key)
+                normalized_themes[name.strip()] = normalized_colors
+        if not normalized_themes:
+            normalized_themes = {"Midnight": dict(DEFAULT_COLORS)}
+            legacy_colors = ui.get("colors")
+            if isinstance(legacy_colors, dict):
+                for key, value in legacy_colors.items():
+                    if (key in DEFAULT_COLORS and isinstance(value, str)
+                            and re.fullmatch(r"#[0-9a-fA-F]{6}", value)):
+                        normalized_themes["Midnight"][key] = value
+        selected_theme = ui.get("theme")
+        if (not isinstance(selected_theme, str)
+                or selected_theme not in normalized_themes):
+            selected_theme = next(iter(normalized_themes))
         settings["ui"] = {
-            **ui,
+            **{key: value for key, value in ui.items() if key != "colors"},
             "text": normalized_text,
-            "colors": normalized_colors,
+            "theme": selected_theme,
+            "themes": normalized_themes,
         }
         return settings
 
-    def _save_settings(self):
+    def _save_settings(self, force: bool = False):
         self._geometry_after = None
         size = [self.winfo_width(), self.winfo_height()]
         if min(size) <= 1:
             return
-        if self._expected_window_size == tuple(size):
+        if self._expected_window_size == tuple(size) and not force:
             return
         settings = dict(self._settings)
         settings["window_size"] = size
@@ -432,6 +472,45 @@ class GameLauncherWindow(tk.Tk):
             self._expected_window_size = tuple(size)
         except OSError:
             log.exception("Unable to save UI settings to %s", CONFIG_PATH)
+
+    def _on_theme_changed(self):
+        theme = self.theme_var.get()
+        colors = self._settings["ui"]["themes"][theme]
+        previous_colors = self.colors
+        color_map = {
+            previous_colors[key]: colors[key]
+            for key in colors
+        }
+        self.colors = colors
+        self._settings["ui"]["theme"] = theme
+        self.configure(bg=colors["background"])
+        self._setup_styles()
+        self._recolor_widgets(self, color_map)
+        games_by_key = {
+            self._game_key(game): game for game in self.games
+        }
+        for key in self.card_widgets:
+            self._update_card(key, games_by_key[key], refresh_icon=True)
+        if self._selected_game is not None:
+            self._show_details(self._selected_game)
+        self._save_settings(force=True)
+
+    def _recolor_widgets(self, parent, color_map):
+        color_options = (
+            "background", "foreground", "highlightbackground",
+            "insertbackground", "selectbackground", "selectforeground",
+        )
+        for widget in parent.winfo_children():
+            if not isinstance(widget, ttk.Widget):
+                options = {
+                    option: color_map[widget.cget(option)]
+                    for option in color_options
+                    if option in widget.keys()
+                    and widget.cget(option) in color_map
+                }
+                if options:
+                    widget.configure(**options)
+            self._recolor_widgets(widget, color_map)
 
     def _on_window_configure(self, event):
         if event.widget is self:

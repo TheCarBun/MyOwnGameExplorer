@@ -1,7 +1,7 @@
 {
   "window_size": [
-    1920,
-    1009
+    1536,
+    864
   ],
   "sort_order": "Size (largest)",
   "ui": {
@@ -19,22 +19,76 @@
       "empty_search": "No games match your search.",
       "scan_error": "Could not load games. Check the game folder and try again."
     },
-    "colors": {
-      "background": "#10151d",
-      "surface": "#171f2b",
-      "card": "#1b2532",
-      "card_hover": "#243242",
-      "text": "#eef3f8",
-      "muted": "#93a4b7",
-      "accent": "#61dfb3",
-      "icon_tile": "#273342",
-      "badge": "#203b38",
-      "button": "#2a3746",
-      "button_hover": "#35485b",
-      "button_disabled": "#202a36",
-      "accent_text": "#10221d",
-      "accent_hover": "#83ebc7",
-      "border": "#34475b"
+    "theme": "Midnight",
+    "themes": {
+      "Midnight": {
+        "background": "#10151d",
+        "surface": "#171f2b",
+        "card": "#1b2532",
+        "card_hover": "#243242",
+        "text": "#eef3f8",
+        "muted": "#93a4b7",
+        "accent": "#61dfb3",
+        "icon_tile": "#273342",
+        "badge": "#203b38",
+        "button": "#2a3746",
+        "button_hover": "#35485b",
+        "button_disabled": "#202a36",
+        "accent_text": "#10221d",
+        "accent_hover": "#83ebc7",
+        "border": "#34475b"
+      },
+      "Ocean": {
+        "background": "#0d1824",
+        "surface": "#142334",
+        "card": "#1a2c40",
+        "card_hover": "#24415b",
+        "text": "#edf6ff",
+        "muted": "#9bb5ca",
+        "accent": "#55c7f2",
+        "icon_tile": "#23394d",
+        "badge": "#1c3c4c",
+        "button": "#294458",
+        "button_hover": "#31536b",
+        "button_disabled": "#1b2b3b",
+        "accent_text": "#0c202a",
+        "accent_hover": "#83d8f6",
+        "border": "#36536c"
+      },
+      "Sunset": {
+        "background": "#211820",
+        "surface": "#2b2029",
+        "card": "#352731",
+        "card_hover": "#493440",
+        "text": "#fff2ed",
+        "muted": "#c1a8a2",
+        "accent": "#ff9b72",
+        "icon_tile": "#49343b",
+        "badge": "#50352f",
+        "button": "#4d3942",
+        "button_hover": "#62464a",
+        "button_disabled": "#392b32",
+        "accent_text": "#301b16",
+        "accent_hover": "#ffb18f",
+        "border": "#604750"
+      },
+      "Light": {
+        "background": "#f2f5f8",
+        "surface": "#ffffff",
+        "card": "#fbfcfd",
+        "card_hover": "#e9eff4",
+        "text": "#1b2733",
+        "muted": "#617384",
+        "accent": "#168c68",
+        "icon_tile": "#e6edf2",
+        "badge": "#d9eee6",
+        "button": "#e3eaf0",
+        "button_hover": "#d3dfe8",
+        "button_disabled": "#edf1f4",
+        "accent_text": "#f7fffb",
+        "accent_hover": "#27a27d",
+        "border": "#cbd6df"
+      }
     }
   }
 }
