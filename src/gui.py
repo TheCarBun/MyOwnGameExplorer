@@ -42,27 +42,6 @@ def format_size(size_bytes: int) -> str:
         size /= 1024
 
 
-def filter_and_sort_games(
-        games: Sequence[GameEntry],
-        query: str = "",
-        sort_order: str = SORT_OPTIONS[0]) -> list[GameEntry]:
-    query = query.strip().casefold()
-    filtered = [
-        game for game in games
-        if not query or query in game.name.casefold()
-        or query in game.folder.name.casefold()
-        or query in game.executable.name.casefold()
-    ]
-
-    if sort_order == "Name (Z-A)":
-        return sorted(filtered, key=lambda game: game.name.casefold(), reverse=True)
-    if sort_order == "Size (largest)":
-        return sorted(filtered, key=lambda game: game.size_bytes, reverse=True)
-    if sort_order == "Size (smallest)":
-        return sorted(filtered, key=lambda game: game.size_bytes)
-    return sorted(filtered, key=lambda game: game.name.casefold())
-
-
 class GameLauncherWindow(tk.Tk):
     def __init__(
             self, games: Sequence[GameEntry],
@@ -74,6 +53,7 @@ class GameLauncherWindow(tk.Tk):
         self.on_refresh = on_refresh
         self.card_widgets = {}
         self._search_index = {}
+        self._visible_card_keys = set()
         self.columns = 1
         self.target_card_width = TARGET_CARD_WIDTH
         self.card_width = TARGET_CARD_WIDTH
@@ -83,6 +63,7 @@ class GameLauncherWindow(tk.Tk):
         self._layout_after = None
         self._search_after = None
         self._scrollbar_after = None
+        self._grid_size = None
         self._initial_fit_pending = True
         self._settings = self._load_settings()
         self._initial_fit_pending = "window_size" not in self._settings
@@ -265,6 +246,7 @@ class GameLauncherWindow(tk.Tk):
             padx=22,
             pady=20,
         )
+        self.details_panel.grid_propagate(False)
         library.grid_columnconfigure(1, weight=0, minsize=0)
         library.grid_columnconfigure(2, weight=0, minsize=0)
         library.bind("<Configure>", self._on_library_configure)
@@ -377,7 +359,9 @@ class GameLauncherWindow(tk.Tk):
     def set_games(self, games: Sequence[GameEntry]) -> None:
         self.games = list(games)
         current_keys = {self._game_key(game) for game in self.games}
-        for key in self.card_widgets.keys() - current_keys:
+        removed_keys = self.card_widgets.keys() - current_keys
+        self._visible_card_keys.difference_update(removed_keys)
+        for key in removed_keys:
             self.card_widgets.pop(key)["card"].destroy()
         self._search_index = {
             self._game_key(game): " ".join(
@@ -431,14 +415,14 @@ class GameLauncherWindow(tk.Tk):
 
     def _position_details_panel(self, width):
         panel_width = min(360, max(280, width // 3))
-        self.details_panel.configure(width=panel_width)
-        self.details_panel.grid_configure(
-            row=0, column=2, sticky="nsew", padx=(12, 0), pady=8)
-        self.details_panel.grid_propagate(False)
+        if int(self.details_panel.cget("width")) != panel_width:
+            self.details_panel.configure(width=panel_width)
         for label in (
                 self.detail_name, self.detail_size, self.detail_exe_size,
                 self.detail_folder, self.detail_executable):
-            label.configure(wraplength=max(180, panel_width - 48))
+            wraplength = max(180, panel_width - 48)
+            if int(label.cget("wraplength")) != wraplength:
+                label.configure(wraplength=wraplength)
 
     def _on_mousewheel(self, event):
         x = self.canvas.winfo_rootx()
@@ -472,16 +456,16 @@ class GameLauncherWindow(tk.Tk):
 
         self.count_label.configure(
             text=f"{len(games)} of {len(self.games)} games")
-        for widgets in self.card_widgets.values():
-            widgets["card"].place_forget()
         if not games:
             message = "No games match your search." if query else (
                 "No games found. Check your game folder and refresh.")
             self.empty_state.configure(text=message)
             self.empty_state.place(relx=0.5, y=48, anchor="n")
+            for key in self._visible_card_keys:
+                self.card_widgets[key]["card"].place_forget()
+            self._visible_card_keys.clear()
             height = max(170, self.canvas.winfo_height())
-            self.grid_frame.configure(width=width, height=height)
-            self.canvas.configure(scrollregion=(0, 0, width, height))
+            self._set_grid_size(width, height)
             self._queue_scrollbar_update(height)
             return
 
@@ -496,14 +480,11 @@ class GameLauncherWindow(tk.Tk):
             max(MIN_CARD_WIDTH, (usable_width - CARD_GAP
                                 * (self.columns - 1)) // self.columns),
         )
-        self.icon_size = min(
-            144, max(80, int(round(self.card_width * 0.46 / 16) * 16)))
         self.card_height = self.icon_size + 156
-        for game in games:
-            self._update_card(self._game_key(game), game)
         rows = math.ceil(len(games) / self.columns)
         height = CARD_INSET + rows * (self.card_height + CARD_GAP)
-        self.grid_frame.configure(width=width, height=height)
+        self._set_grid_size(width, height)
+        visible_keys = set()
         for row in range(rows):
             row_games = games[row * self.columns:(row + 1) * self.columns]
             row_width = (len(row_games) * self.card_width
@@ -512,16 +493,34 @@ class GameLauncherWindow(tk.Tk):
             y = CARD_INSET + row * (self.card_height + CARD_GAP)
             for column, game in enumerate(row_games):
                 key = self._game_key(game)
-                self.card_widgets[key]["card"].place(
-                    x=start_x + column * (self.card_width + CARD_GAP),
-                    y=y,
-                    width=self.card_width,
-                    height=self.card_height,
-                )
-        self.canvas.configure(scrollregion=(0, 0, width, height))
+                visible_keys.add(key)
+                card = self.card_widgets[key]["card"]
+                card_x = start_x + column * (self.card_width + CARD_GAP)
+                if (card.winfo_manager() != "place"
+                        or (card.winfo_x(), card.winfo_y(),
+                            card.winfo_width(), card.winfo_height())
+                        != (card_x, y, self.card_width, self.card_height)):
+                    card.place(
+                        x=card_x,
+                        y=y,
+                        width=self.card_width,
+                        height=self.card_height,
+                    )
+                self._update_card_geometry(self.card_widgets[key])
+        for key in self._visible_card_keys - visible_keys:
+            self.card_widgets[key]["card"].place_forget()
+        self._visible_card_keys = visible_keys
         self._queue_scrollbar_update(height)
-        log.debug("Placed %d of %d cards across %d columns",
+        log.debug("Positioned %d of %d cards across %d columns",
                   len(games), len(self.games), self.columns)
+
+    def _set_grid_size(self, width: int, height: int) -> None:
+        size = (width, height)
+        if size == self._grid_size:
+            return
+        self._grid_size = size
+        self.grid_frame.configure(width=width, height=height)
+        self.canvas.configure(scrollregion=(0, 0, width, height))
 
     def _queue_scrollbar_update(self, content_height):
         if self._scrollbar_after is not None:
@@ -610,15 +609,21 @@ class GameLauncherWindow(tk.Tk):
             "set_color": set_card_color,
         }
 
+    def _update_card_geometry(self, widgets: dict) -> None:
+        card = widgets["card"]
+        if (int(card.cget("width")), int(card.cget("height"))) != (
+                self.card_width, self.card_height):
+            card.configure(width=self.card_width, height=self.card_height)
+        name = widgets["name"]
+        wraplength = self.card_width - 24
+        if int(name.cget("wraplength")) != wraplength:
+            name.configure(wraplength=wraplength)
+
     def _update_card(
             self, key: str, game: GameEntry,
             refresh_icon: bool = False) -> None:
         widgets = self.card_widgets[key]
-        card = widgets["card"]
-        card.configure(width=self.card_width, height=self.card_height)
-        widgets["icon_holder"].configure(
-            width=self.icon_size, height=self.icon_size)
-        widgets["name"].configure(wraplength=self.card_width - 24)
+        self._update_card_geometry(widgets)
         widgets["name"].configure(text=game.name)
         widgets["size"].configure(text=format_size(game.size_bytes))
         if refresh_icon or widgets.get("icon_size") != self.icon_size:
@@ -706,14 +711,13 @@ class GameLauncherWindow(tk.Tk):
         self.detail_executable.configure(text=str(game.executable))
         library = self.details_panel.master
         self._position_details_panel(library.winfo_width())
-        self.details_panel.grid()
-        library.update_idletasks()
-        self._render_cards()
+        if self.details_panel.winfo_manager() != "grid":
+            self.details_panel.grid(
+                row=0, column=2, sticky="nsew", padx=(12, 0), pady=8)
         self.canvas.focus_set()
 
     def _hide_details(self) -> None:
         self.details_panel.grid_remove()
-        self._render_cards()
 
     def _open_selected_folder(self) -> None:
         if self._selected_game is not None:
