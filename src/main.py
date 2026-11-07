@@ -26,13 +26,13 @@ def main():
     sys.excepthook = handle_uncaught
     log.info("Starting launcher for %s", GAMES_ROOT)
     scan_results = queue.Queue()
-    scan_state = {"running": False}
-    app = None
+    scan_running = False
 
     def start_scan(force_refresh=False):
-        if scan_state["running"]:
+        nonlocal scan_running
+        if scan_running:
             return
-        scan_state["running"] = True
+        scan_running = True
         app.set_scanning(True)
 
         def scan_worker():
@@ -46,13 +46,14 @@ def main():
             target=scan_worker, daemon=True, name="GameScanner").start()
 
     def poll_scan_results():
+        nonlocal scan_running
         try:
             games, error = scan_results.get_nowait()
         except queue.Empty:
             app.after(100, poll_scan_results)
             return
 
-        scan_state["running"] = False
+        scan_running = False
         app.set_scanning(False)
         if error is not None:
             app.set_status(f"Scan failed: {error}")

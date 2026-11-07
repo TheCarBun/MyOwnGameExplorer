@@ -41,45 +41,19 @@ def _cache_key(path):
 
 def _load_cache():
     try:
-        contents = CACHE_PATH.read_text(encoding="utf-8")
+        cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
-    except OSError:
+    except (OSError, ValueError):
         log.exception("Unable to read scan cache at %s", CACHE_PATH)
         return {}
 
-    try:
-        cache = json.loads(contents)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        log.exception("Unable to parse scan cache at %s", CACHE_PATH)
-        return {}
-
-    if (not isinstance(cache, dict)
-            or cache.get("version") != CACHE_VERSION
-            or not isinstance(cache.get("folders"), dict)):
-        log.warning("Invalid scan cache at %s; rebuilding it", CACHE_PATH)
-        return {}
-
-    folders = cache["folders"]
-    for entry in folders.values():
-        if (not isinstance(entry, dict)
-                or "signature" not in entry
-                or "exe" not in entry
-                or (entry["signature"] is not None
-                    and not isinstance(entry["signature"], int))):
-            log.warning("Invalid scan cache entries at %s; rebuilding it",
-                        CACHE_PATH)
-            return {}
-        exe = entry["exe"]
-        if (exe is not None
-                and (not isinstance(exe, dict)
-                     or not isinstance(exe.get("path"), str)
-                     or not isinstance(exe.get("size"), int)
-                     or not isinstance(exe.get("mtime"), int))):
-            log.warning("Invalid scan cache entries at %s; rebuilding it",
-                        CACHE_PATH)
-            return {}
-    return folders
+    if isinstance(cache, dict) and cache.get("version") == CACHE_VERSION:
+        folders = cache.get("folders")
+        if isinstance(folders, dict):
+            return folders
+    log.warning("Invalid scan cache at %s; rebuilding it", CACHE_PATH)
+    return {}
 
 
 def _save_cache(folders):
@@ -95,11 +69,10 @@ def _save_cache(folders):
 
 
 def find_games(root, force_refresh=False):
-    game_dirs = list(game_folders(root))
     cache = _load_cache()
     new_cache = {}
     games = []
-    for game_dir in game_dirs:
+    for game_dir in game_folders(root):
         key = _cache_key(game_dir)
         try:
             signature = game_dir.stat().st_mtime_ns
@@ -108,57 +81,46 @@ def find_games(root, force_refresh=False):
             signature = None
 
         previous = cache.get(key)
-        needs_scan = (
-            force_refresh
-            or signature is None
-            or not isinstance(previous, dict)
-            or previous.get("signature") != signature
-        )
-
-        if not needs_scan:
-            cached_exe = previous.get("exe")
+        if (not force_refresh and signature is not None
+                and isinstance(previous, dict)
+                and previous.get("signature") == signature
+                and "exe" in previous):
+            cached_exe = previous["exe"]
             if cached_exe is None:
                 new_cache[key] = previous
                 continue
             if isinstance(cached_exe, dict):
-                exe = pathlib.Path(cached_exe.get("path", ""))
                 try:
+                    exe = pathlib.Path(cached_exe.get("path", ""))
                     exe.relative_to(game_dir.resolve())
                     stat = exe.stat()
-                except (OSError, ValueError):
-                    needs_scan = True
+                except (OSError, TypeError, ValueError):
+                    pass
                 else:
                     if (stat.st_size == cached_exe.get("size")
                             and stat.st_mtime_ns == cached_exe.get("mtime")):
                         games.append((game_dir, exe))
                         new_cache[key] = previous
                         continue
-                    needs_scan = True
-            else:
-                needs_scan = True
 
-        if needs_scan:
-            candidates = [
-                exe for exe in game_dir.rglob("*.exe")
-                if not is_junk(exe, game_dir)
-            ]
-            if candidates:
-                chosen = max(candidates, key=lambda exe: exe.stat().st_size)
-                stat = chosen.stat()
-                log.info("Selected %s for folder %s",
-                         chosen.name, game_dir.name)
-                exe_data = {
-                    "path": str(chosen.resolve()),
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime_ns,
-                }
-                games.append((game_dir, chosen))
-            else:
-                log.warning("No game executable found in %s", game_dir.name)
-                exe_data = None
-            new_cache[key] = {"signature": signature, "exe": exe_data}
+        candidates = [
+            exe for exe in game_dir.rglob("*.exe")
+            if not is_junk(exe, game_dir)
+        ]
+        if candidates:
+            chosen = max(candidates, key=lambda exe: exe.stat().st_size)
+            stat = chosen.stat()
+            log.info("Selected %s for folder %s", chosen.name, game_dir.name)
+            exe_data = {
+                "path": str(chosen.resolve()),
+                "size": stat.st_size,
+                "mtime": stat.st_mtime_ns,
+            }
+            games.append((game_dir, chosen))
         else:
-            new_cache[key] = previous
+            log.warning("No game executable found in %s", game_dir.name)
+            exe_data = None
+        new_cache[key] = {"signature": signature, "exe": exe_data}
 
     if new_cache != cache:
         _save_cache(new_cache)
