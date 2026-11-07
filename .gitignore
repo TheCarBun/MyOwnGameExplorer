@@ -1,0 +1,5 @@
+__pycache__/
+.icon_cache/
+.venv/
+logs/
+.todo
