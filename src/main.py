@@ -8,6 +8,7 @@ from pathlib import Path
 from logger import get_logger
 from models import GameEntry
 from scan import find_games, get_product_name
+from icons import clear_icon_cache
 from gui import GameLauncherWindow
 
 log = get_logger("main")
@@ -53,6 +54,13 @@ def main():
         nonlocal scan_running
         if scan_running:
             return
+        if force_refresh:
+            try:
+                clear_icon_cache()
+            except OSError as exc:
+                log.exception("Unable to clear icon cache")
+                app.set_status(f"Unable to clear icon cache: {exc}")
+                return
         scan_running = True
         app.set_scanning(True)
 

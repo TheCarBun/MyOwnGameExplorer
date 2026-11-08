@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 from pathlib import Path
 
 from PIL import Image, ImageOps, ImageTk
@@ -14,6 +15,12 @@ CACHE_DIR = Path(__file__).parent.parent / "cache" / "icons"
 # Used when an exe has no icon resource at all
 PLACEHOLDER = Image.new("RGBA", (128, 128), (60, 60, 60, 255))
 _photo_cache = {}
+
+
+def clear_icon_cache():
+    if CACHE_DIR.exists():
+        shutil.rmtree(CACHE_DIR)
+    _photo_cache.clear()
 
 
 def _cache_path(exe_path, size, background):
