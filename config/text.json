@@ -1,0 +1,14 @@
+{
+  "window_title": "BunLauncher",
+  "heading": "Welcome",
+  "subtitle": "hehe my own game launcher...",
+  "refresh_button": "Refresh library",
+  "scanning_button": "Scanning...",
+  "scan_status": "Scanning your game folders...",
+  "sort_label": "SORT BY",
+  "details_heading": "GAME DETAILS",
+  "loading_text": "Locating game executables",
+  "empty_library": "No games found. Check your game folder and refresh.",
+  "empty_search": "No games match your search.",
+  "scan_error": "Could not load games. Check the game folder and try again."
+}

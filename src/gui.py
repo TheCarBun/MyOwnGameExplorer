@@ -33,7 +33,10 @@ SORT_OPTIONS = (
     "Size (largest)",
     "Size (smallest)",
 )
-CONFIG_PATH = pathlib.Path(__file__).parent.parent / "config.json"
+CONFIG_DIR = pathlib.Path(__file__).parent.parent / "config"
+SETTINGS_CONFIG_PATH = CONFIG_DIR / "settings.json"
+TEXT_CONFIG_PATH = CONFIG_DIR / "text.json"
+THEME_CONFIG_PATH = CONFIG_DIR / "theme.json"
 DEFAULT_UI_TEXT = {
     "window_title": "Arcade - Game Launcher",
     "heading": "Your library",
@@ -65,6 +68,35 @@ DEFAULT_COLORS = {
     "accent_hover": "#83ebc7",
     "border": "#34475b",
 }
+
+
+def _read_config(path: pathlib.Path) -> dict:
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        log.exception("Unable to read UI settings from %s", path)
+        return {}
+    if not isinstance(settings, dict):
+        log.warning("Invalid UI settings in %s; using defaults", path)
+        return {}
+    return settings
+
+
+def _write_config(path: pathlib.Path, settings: dict) -> bool:
+    temporary_path = path.with_suffix(".json.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path.write_text(
+            json.dumps(settings, indent=2), encoding="utf-8")
+        temporary_path.replace(path)
+    except OSError:
+        log.exception("Unable to save UI settings to %s", path)
+        return False
+    return True
+
+
 def format_size(size_bytes: int) -> str:
     size = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -380,17 +412,7 @@ class GameLauncherWindow(tk.Tk):
         self.loading_frame.place_forget()
 
     def _load_settings(self):
-        try:
-            settings = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            settings = {}
-        except (OSError, ValueError):
-            log.exception("Unable to read UI settings from %s", CONFIG_PATH)
-            settings = {}
-
-        if not isinstance(settings, dict):
-            log.warning("Invalid UI settings in %s; using defaults", CONFIG_PATH)
-            settings = {}
+        settings = _read_config(SETTINGS_CONFIG_PATH)
         size = settings.get("window_size")
         if (isinstance(size, list) and len(size) == 2
                 and all(type(value) is int and value > 0 for value in size)):
@@ -399,21 +421,17 @@ class GameLauncherWindow(tk.Tk):
             settings.pop("window_size", None)
         if settings.get("sort_order") not in SORT_OPTIONS:
             settings.pop("sort_order", None)
-        ui = settings.get("ui")
-        if not isinstance(ui, dict):
-            ui = {}
-        text = ui.get("text")
-        if not isinstance(text, dict):
-            text = {}
+        text = _read_config(TEXT_CONFIG_PATH)
         normalized_text = dict(DEFAULT_UI_TEXT)
         for key in normalized_text:
             value = text.get(key)
             if isinstance(value, str) and value.strip():
                 normalized_text[key] = value.strip()
             elif value is not None:
-                log.warning("Ignoring invalid ui.text.%s setting", key)
+                log.warning("Ignoring invalid text.%s setting", key)
 
-        configured_themes = ui.get("themes")
+        theme_config = _read_config(THEME_CONFIG_PATH)
+        configured_themes = theme_config.get("themes")
         normalized_themes = {}
         if isinstance(configured_themes, dict):
             for name, colors in configured_themes.items():
@@ -421,7 +439,7 @@ class GameLauncherWindow(tk.Tk):
                     log.warning("Ignoring theme with an invalid name")
                     continue
                 if not isinstance(colors, dict):
-                    log.warning("Ignoring invalid ui.themes.%s setting", name)
+                    log.warning("Ignoring invalid theme.%s setting", name)
                     continue
                 normalized_colors = dict(DEFAULT_COLORS)
                 for key in normalized_colors:
@@ -431,23 +449,16 @@ class GameLauncherWindow(tk.Tk):
                         normalized_colors[key] = value
                     elif value is not None:
                         log.warning(
-                            "Ignoring invalid ui.themes.%s.%s setting",
+                            "Ignoring invalid theme.%s.%s setting",
                             name, key)
                 normalized_themes[name.strip()] = normalized_colors
         if not normalized_themes:
             normalized_themes = {"Midnight": dict(DEFAULT_COLORS)}
-            legacy_colors = ui.get("colors")
-            if isinstance(legacy_colors, dict):
-                for key, value in legacy_colors.items():
-                    if (key in DEFAULT_COLORS and isinstance(value, str)
-                            and re.fullmatch(r"#[0-9a-fA-F]{6}", value)):
-                        normalized_themes["Midnight"][key] = value
-        selected_theme = ui.get("theme")
+        selected_theme = theme_config.get("selected_theme")
         if (not isinstance(selected_theme, str)
                 or selected_theme not in normalized_themes):
             selected_theme = next(iter(normalized_themes))
         settings["ui"] = {
-            **{key: value for key, value in ui.items() if key != "colors"},
             "text": normalized_text,
             "theme": selected_theme,
             "themes": normalized_themes,
@@ -461,17 +472,9 @@ class GameLauncherWindow(tk.Tk):
             return
         if self._expected_window_size == tuple(size) and not force:
             return
-        settings = dict(self._settings)
-        settings["window_size"] = size
-        settings["sort_order"] = self.sort_var.get()
-        temporary_path = CONFIG_PATH.with_suffix(".json.tmp")
-        try:
-            temporary_path.write_text(
-                json.dumps(settings, indent=2), encoding="utf-8")
-            temporary_path.replace(CONFIG_PATH)
+        settings = {"window_size": size, "sort_order": self.sort_var.get()}
+        if _write_config(SETTINGS_CONFIG_PATH, settings):
             self._expected_window_size = tuple(size)
-        except OSError:
-            log.exception("Unable to save UI settings to %s", CONFIG_PATH)
 
     def _on_theme_changed(self):
         theme = self.theme_var.get()
@@ -483,6 +486,10 @@ class GameLauncherWindow(tk.Tk):
         }
         self.colors = colors
         self._settings["ui"]["theme"] = theme
+        _write_config(THEME_CONFIG_PATH, {
+            "selected_theme": theme,
+            "themes": self._settings["ui"]["themes"],
+        })
         self.configure(bg=colors["background"])
         self._setup_styles()
         self._recolor_widgets(self, color_map)
