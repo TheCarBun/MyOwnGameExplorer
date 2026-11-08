@@ -1,12 +1,17 @@
 from collections.abc import Callable, Sequence
+import ctypes
 from datetime import datetime
 import json
 import math
 import pathlib
 import re
 import subprocess
+import sys
 import tkinter as tk
+from ctypes import wintypes
 from tkinter import ttk
+
+from PIL import Image, ImageDraw, ImageTk
 
 from icons import get_icon_image
 from logger import get_logger
@@ -27,6 +32,12 @@ MAX_CARD_WIDTH = 284
 TARGET_CARD_WIDTH = 232
 CARD_GAP = 14
 CARD_INSET = 12
+GA_ROOT = 2
+DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_BORDER_COLOR = 34
+DWMWA_CAPTION_COLOR = 35
+DWMWA_TEXT_COLOR = 36
 SORT_OPTIONS = (
     "Name (A-Z)",
     "Name (Z-A)",
@@ -124,13 +135,14 @@ class GameLauncherWindow(tk.Tk):
         self.columns = 1
         self.target_card_width = TARGET_CARD_WIDTH
         self.card_width = TARGET_CARD_WIDTH
-        self.card_height = 252
+        self.card_height = 264
         self.icon_size = 96
         self._geometry_after = None
         self._expected_window_size = None
         self._layout_after = None
         self._search_after = None
         self._scrollbar_after = None
+        self._clear_icon_hovered = False
         self._grid_size = None
         self._details_panel_width = None
         self._scan_complete = False
@@ -151,6 +163,8 @@ class GameLauncherWindow(tk.Tk):
 
         self._setup_styles()
         self._build_layout()
+        self._update_app_icon()
+        self.after_idle(self._apply_title_bar_theme)
         if games:
             self.set_games(games)
         else:
@@ -201,10 +215,20 @@ class GameLauncherWindow(tk.Tk):
             background=self.colors["surface"],
             foreground=self.colors["text"],
             arrowcolor=self.colors["accent"],
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["border"],
+            darkcolor=self.colors["border"],
+            borderwidth=0,
+            relief="flat",
             padding=8,
         )
         style.map(
             "Launcher.TCombobox",
+            background=[
+                ("active", self.colors["button_hover"]),
+                ("readonly", self.colors["surface"]),
+                ("!disabled", self.colors["surface"]),
+            ],
             fieldbackground=[
                 ("readonly", self.colors["surface"]),
                 ("focus", self.colors["surface"]),
@@ -215,6 +239,33 @@ class GameLauncherWindow(tk.Tk):
             ],
             selectbackground=[("readonly", self.colors["surface"])],
             selectforeground=[("readonly", self.colors["text"])],
+            bordercolor=[
+                ("focus", self.colors["border"]),
+                ("!focus", self.colors["border"]),
+            ],
+            lightcolor=[
+                ("focus", self.colors["border"]),
+                ("!focus", self.colors["border"]),
+            ],
+            darkcolor=[
+                ("focus", self.colors["border"]),
+                ("!focus", self.colors["border"]),
+            ],
+        )
+        style.configure(
+            "Launcher.Popup.Vertical.TScrollbar",
+            background=self.colors["button"],
+            troughcolor=self.colors["surface"],
+            bordercolor=self.colors["surface"],
+            arrowcolor=self.colors["surface"],
+            arrowsize=0,
+            borderwidth=0,
+            relief="flat",
+            width=8,
+        )
+        style.map(
+            "Launcher.Popup.Vertical.TScrollbar",
+            background=[("active", self.colors["accent"])],
         )
         self.option_add("*TCombobox*Listbox.background", self.colors["surface"])
         self.option_add("*TCombobox*Listbox.foreground", self.colors["text"])
@@ -228,14 +279,43 @@ class GameLauncherWindow(tk.Tk):
             fieldbackground=self.colors["surface"],
             foreground=self.colors["text"],
             insertcolor=self.colors["text"],
-            padding=10,
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["border"],
+            darkcolor=self.colors["border"],
+            padding=(10, 0),
+        )
+        style.map(
+            "Launcher.TEntry",
+            fieldbackground=[
+                ("focus", self.colors["surface"]),
+                ("!focus", self.colors["surface"]),
+            ],
+            bordercolor=[
+                ("focus", self.colors["border"]),
+                ("!focus", self.colors["border"]),
+            ],
+            lightcolor=[
+                ("focus", self.colors["border"]),
+                ("!focus", self.colors["border"]),
+            ],
+            darkcolor=[
+                ("focus", self.colors["border"]),
+                ("!focus", self.colors["border"]),
+            ],
         )
         style.configure(
             "Launcher.Vertical.TScrollbar",
             background=self.colors["surface"],
             troughcolor=self.colors["background"],
             bordercolor=self.colors["background"],
-            arrowcolor=self.colors["muted"],
+            arrowsize=0,
+            borderwidth=0,
+            relief="flat",
+            width=8,
+        )
+        style.map(
+            "Launcher.Vertical.TScrollbar",
+            background=[("active", self.colors["accent"])],
         )
         style.configure(
             "Launcher.Horizontal.TProgressbar",
@@ -250,26 +330,35 @@ class GameLauncherWindow(tk.Tk):
         content = tk.Frame(self, bg=self.colors["background"])
         content.pack(fill="both", expand=True, padx=26, pady=(22, 16))
 
-        header = tk.Frame(content, bg=self.colors["background"])
-        header.pack(fill="x", pady=(0, 20))
-        title_block = tk.Frame(header, bg=self.colors["background"])
-        title_block.pack(side="left", fill="x", expand=True)
-        tk.Label(
-            title_block,
+        self.header = tk.Frame(
+            content,
+            bg=self.colors["surface"],
+            padx=18,
+            pady=14,
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+        )
+        self.header.pack(fill="x", pady=(0, 18))
+        self.title_block = tk.Frame(self.header, bg=self.colors["surface"])
+        self.title_block.pack(side="left", fill="x", expand=True)
+        self.heading_label = tk.Label(
+            self.title_block,
             text=self.ui_text["heading"],
             fg=self.colors["text"],
-            bg=self.colors["background"],
+            bg=self.colors["surface"],
             font=("Segoe UI Semibold", 25),
-        ).pack(anchor="w")
-        tk.Label(
-            title_block,
+        )
+        self.heading_label.pack(anchor="w")
+        self.subtitle_label = tk.Label(
+            self.title_block,
             text=self.ui_text["subtitle"],
             fg=self.colors["muted"],
-            bg=self.colors["background"],
+            bg=self.colors["surface"],
             font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(2, 0))
+        )
+        self.subtitle_label.pack(anchor="w", pady=(2, 0))
         self.refresh_button = ttk.Button(
-            header,
+            self.header,
             text=self.ui_text["refresh_button"],
             style="Launcher.TButton",
             command=self.on_refresh,
@@ -278,32 +367,80 @@ class GameLauncherWindow(tk.Tk):
 
         toolbar = tk.Frame(content, bg=self.colors["background"])
         toolbar.pack(fill="x", pady=(0, 16))
-        search_wrap = tk.Frame(
-            toolbar, bg=self.colors["surface"], padx=2, pady=2)
-        search_wrap.pack(side="left", fill="x", expand=True, padx=(0, 16))
-        tk.Label(
-            search_wrap, text="⌕", fg=self.colors["accent"],
+        self.search_wrap = tk.Frame(
+            toolbar,
+            bg=self.colors["border"],
+            padx=1,
+            pady=1,
+            highlightthickness=0,
+        )
+        self.search_wrap.pack(
+            side="left", fill="x", expand=True, padx=(0, 14))
+        self.search_inner = tk.Frame(
+            self.search_wrap, bg=self.colors["surface"])
+        self.search_inner.pack(fill="both", expand=True)
+        self.search_icon = tk.Canvas(
+            self.search_inner,
+            width=38,
+            height=38,
             bg=self.colors["surface"],
-            font=("Segoe UI", 16),
-        ).pack(side="left", padx=(10, 4))
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self.search_icon.pack(side="left", fill="y")
+        self._draw_search_icon()
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(
-            search_wrap,
+            self.search_inner,
             textvariable=self.search_var,
             style="Launcher.TEntry",
         )
-        self.search_entry.pack(side="left", fill="x", expand=True)
+        self.search_entry.pack(side="left", fill="both", expand=True)
+        self.clear_search_button = tk.Canvas(
+            self.search_inner,
+            width=38,
+            height=38,
+            bg=self.colors["surface"],
+            highlightthickness=0,
+            borderwidth=0,
+            cursor="hand2",
+            takefocus=True,
+        )
+        self.clear_search_button.pack(side="right", fill="y")
+        self.clear_search_button.bind(
+            "<Button-1>", lambda *_: self._clear_search())
+        self.clear_search_button.bind(
+            "<Return>", lambda *_: self._clear_search())
+        self.clear_search_button.bind(
+            "<space>", lambda *_: self._clear_search())
+        self.clear_search_button.bind(
+            "<Enter>",
+            lambda *_: self._set_clear_icon_hover(True))
+        self.clear_search_button.bind(
+            "<Leave>",
+            lambda *_: self._set_clear_icon_hover(False))
+        self._draw_clear_icon()
         self.search_var.trace_add("write", self._on_search_changed)
         self.search_entry.bind("<Escape>", lambda *_: self._clear_search())
+        self.controls = tk.Frame(
+            toolbar,
+            bg=self.colors["surface"],
+            padx=12,
+            pady=5,
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+        )
+        self.controls.pack(side="right")
         self.sort_var = tk.StringVar(
             value=self._settings.get("sort_order", SORT_OPTIONS[0]))
-        tk.Label(
-            toolbar, text=self.ui_text["sort_label"],
-            fg=self.colors["muted"], bg=self.colors["background"],
+        self.sort_label = tk.Label(
+            self.controls, text=self.ui_text["sort_label"],
+            fg=self.colors["muted"], bg=self.colors["surface"],
             font=("Segoe UI", 8, "bold"),
-        ).pack(side="left", padx=(0, 8))
+        )
+        self.sort_label.pack(side="left", padx=(0, 8))
         self.sort_box = ttk.Combobox(
-            toolbar,
+            self.controls,
             textvariable=self.sort_var,
             values=SORT_OPTIONS,
             state="readonly",
@@ -313,14 +450,15 @@ class GameLauncherWindow(tk.Tk):
         self.sort_box.pack(side="left")
         self.sort_box.bind(
             "<<ComboboxSelected>>", lambda *_: self._on_sort_changed())
-        tk.Label(
-            toolbar, text="THEME",
-            fg=self.colors["muted"], bg=self.colors["background"],
+        self.theme_label = tk.Label(
+            self.controls, text="THEME",
+            fg=self.colors["muted"], bg=self.colors["surface"],
             font=("Segoe UI", 8, "bold"),
-        ).pack(side="left", padx=(16, 8))
+        )
+        self.theme_label.pack(side="left", padx=(16, 8))
         self.theme_var = tk.StringVar(value=self._settings["ui"]["theme"])
         self.theme_box = ttk.Combobox(
-            toolbar,
+            self.controls,
             textvariable=self.theme_var,
             values=tuple(self._settings["ui"]["themes"]),
             state="readonly",
@@ -373,6 +511,16 @@ class GameLauncherWindow(tk.Tk):
 
         footer = tk.Frame(content, bg=self.colors["background"])
         footer.pack(fill="x", pady=(12, 0))
+        self.count_label = tk.Label(
+            footer,
+            text="Found 0 games",
+            fg=self.colors["accent"],
+            bg=self.colors["badge"],
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.count_label.pack(side="left")
         self.status_label = tk.Label(
             footer,
             text="",
@@ -380,11 +528,7 @@ class GameLauncherWindow(tk.Tk):
             bg=self.colors["background"],
             font=("Segoe UI", 9),
         )
-        self.status_label.pack(side="left")
-        self.count_label = tk.Label(
-            footer, text="", fg=self.colors["muted"],
-            bg=self.colors["background"], font=("Segoe UI", 9))
-        self.count_label.pack(side="right")
+        self.status_label.pack(side="left", padx=(10, 0))
         self.empty_state = tk.Label(
             self.grid_frame,
             text="",
@@ -410,6 +554,7 @@ class GameLauncherWindow(tk.Tk):
         )
         self.loading_bar.pack()
         self.loading_frame.place_forget()
+        self._apply_combobox_popup_colors()
 
     def _load_settings(self):
         settings = _read_config(SETTINGS_CONFIG_PATH)
@@ -493,12 +638,177 @@ class GameLauncherWindow(tk.Tk):
         self.configure(bg=colors["background"])
         self._setup_styles()
         self._recolor_widgets(self, color_map)
+        self._apply_top_bar_colors()
+        self._update_app_icon()
+        self._apply_combobox_popup_colors()
+        self._draw_search_icon()
+        self._draw_clear_icon()
+        self._apply_title_bar_theme()
         self._save_settings(force=True)
+
+    def _apply_top_bar_colors(self):
+        surface = self.colors["surface"]
+        self.header.configure(
+            bg=surface, highlightbackground=self.colors["border"])
+        self.title_block.configure(bg=surface)
+        self.heading_label.configure(bg=surface, fg=self.colors["text"])
+        self.subtitle_label.configure(bg=surface, fg=self.colors["muted"])
+        self.search_wrap.configure(bg=self.colors["border"])
+        self.search_inner.configure(bg=surface)
+        self.search_icon.configure(bg=surface)
+        self.clear_search_button.configure(bg=surface)
+        self.controls.configure(
+            bg=surface, highlightbackground=self.colors["border"])
+        self.sort_label.configure(bg=surface, fg=self.colors["muted"])
+        self.theme_label.configure(bg=surface, fg=self.colors["muted"])
+        self._clear_icon_hovered = False
+
+    def _apply_combobox_popup_colors(self):
+        for combobox in (self.sort_box, self.theme_box):
+            popdown = self.tk.call(
+                "ttk::combobox::PopdownWindow", str(combobox))
+            pending = [popdown]
+            while pending:
+                parent = pending.pop()
+                for child in self.tk.splitlist(
+                        self.tk.call("winfo", "children", parent)):
+                    if self.tk.call("winfo", "class", child) == "Listbox":
+                        self.tk.call(
+                            child,
+                            "configure",
+                            "-background", self.colors["surface"],
+                            "-foreground", self.colors["text"],
+                            "-selectbackground", self.colors["button_hover"],
+                            "-selectforeground", self.colors["text"],
+                            "-highlightbackground", self.colors["border"],
+                            "-highlightcolor", self.colors["border"],
+                        )
+                    elif self.tk.call("winfo", "class", child) == "TScrollbar":
+                        self.tk.call(
+                            child,
+                            "configure",
+                            "-style", "Launcher.Popup.Vertical.TScrollbar",
+                        )
+                    else:
+                        pending.append(child)
+
+    def _create_app_icon(self, size=48):
+        image = Image.new("RGBA", (size, size), self.colors["surface"])
+        draw = ImageDraw.Draw(image)
+        inset = max(1, size // 32)
+        draw.rounded_rectangle(
+            (inset, inset, size - inset - 1, size - inset - 1),
+            radius=size // 5,
+            fill=self.colors["icon_tile"],
+            outline=self.colors["border"],
+            width=max(1, size // 24),
+        )
+        center = size // 2
+        draw.polygon(
+            [
+                (center - size // 9, center - size // 5),
+                (center + size // 5, center),
+                (center - size // 9, center + size // 5),
+            ],
+            fill=self.colors["accent"],
+        )
+        return ImageTk.PhotoImage(image)
+
+    def _update_app_icon(self):
+        self._app_icon = self._create_app_icon()
+        self.iconphoto(True, self._app_icon)
+
+    def _draw_search_icon(self):
+        self.search_icon.delete("all")
+        self.search_icon.create_oval(
+            10, 10, 23, 23,
+            outline=self.colors["accent"],
+            width=2,
+        )
+        self.search_icon.create_line(
+            21, 21, 28, 28,
+            fill=self.colors["accent"],
+            width=2,
+            capstyle=tk.ROUND,
+        )
+
+    def _draw_clear_icon(self):
+        self.clear_search_button.delete("all")
+        color = self.colors["text"] if self._clear_icon_hovered else (
+            self.colors["muted"])
+        self.clear_search_button.create_line(
+            14, 14, 24, 24, fill=color, width=2, capstyle=tk.ROUND)
+        self.clear_search_button.create_line(
+            24, 14, 14, 24, fill=color, width=2, capstyle=tk.ROUND)
+
+    def _set_clear_icon_hover(self, hovered):
+        self._clear_icon_hovered = hovered
+        self.clear_search_button.configure(
+            bg=self.colors["button_hover"] if hovered
+            else self.colors["surface"])
+        self._draw_clear_icon()
+
+    def _apply_title_bar_theme(self):
+        if sys.platform != "win32":
+            return
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi")
+            user32 = ctypes.WinDLL("user32")
+        except OSError:
+            log.debug("Windows DWM is unavailable; using the system title bar")
+            return
+
+        user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetAncestor.restype = wintypes.HWND
+        dwmapi.DwmSetWindowAttribute.argtypes = (
+            wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD)
+        dwmapi.DwmSetWindowAttribute.restype = wintypes.LONG
+        hwnd = user32.GetAncestor(
+            wintypes.HWND(self.winfo_id()), GA_ROOT)
+        if not hwnd:
+            log.debug("Unable to find the native launcher window handle")
+            return
+
+        def set_attribute(attribute, value):
+            native_value = wintypes.DWORD(value)
+            result = dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                attribute,
+                ctypes.byref(native_value),
+                ctypes.sizeof(native_value),
+            )
+            if result != 0:
+                log.debug("Unable to set Windows title bar attribute %d", attribute)
+            return result == 0
+
+        red, green, blue = (
+            int(self.colors["background"][index:index + 2], 16)
+            for index in (1, 3, 5)
+        )
+        dark_title_bar = (
+            red * 299 + green * 587 + blue * 114) // 1000 < 128
+        if not set_attribute(
+                DWMWA_USE_IMMERSIVE_DARK_MODE, int(dark_title_bar)):
+            set_attribute(
+                DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, int(dark_title_bar))
+
+        def colorref(color):
+            red, green, blue = (
+                int(color[index:index + 2], 16)
+                for index in (1, 3, 5)
+            )
+            return red | green << 8 | blue << 16
+
+        set_attribute(
+            DWMWA_CAPTION_COLOR, colorref(self.colors["background"]))
+        set_attribute(DWMWA_TEXT_COLOR, colorref(self.colors["text"]))
+        set_attribute(DWMWA_BORDER_COLOR, colorref(self.colors["border"]))
 
     def _recolor_widgets(self, parent, color_map):
         color_options = (
             "background", "foreground", "highlightbackground",
             "insertbackground", "selectbackground", "selectforeground",
+            "activebackground", "activeforeground",
         )
         for widget in parent.winfo_children():
             if not isinstance(widget, ttk.Widget):
@@ -561,6 +871,8 @@ class GameLauncherWindow(tk.Tk):
         )
         if scanning:
             self.set_status(self.ui_text["scan_status"])
+        else:
+            self.set_status("")
 
     def set_status(self, message):
         self.status_label.configure(text=message)
@@ -571,6 +883,10 @@ class GameLauncherWindow(tk.Tk):
         self.loading_bar.stop()
         self.games = list(games)
         current_keys = {self._game_key(game) for game in self.games}
+        if (self._selected_game is not None
+                and self._game_key(self._selected_game) not in current_keys):
+            self._selected_game = None
+            self._hide_details()
         removed_keys = self.card_widgets.keys() - current_keys
         self._visible_card_keys.difference_update(removed_keys)
         for key in removed_keys:
@@ -645,6 +961,9 @@ class GameLauncherWindow(tk.Tk):
         wraplength = max(180, panel_width - 48)
         if int(self.detail_name.cget("wraplength")) != wraplength:
             self.detail_name.configure(wraplength=wraplength)
+        for value in self.detail_values:
+            if int(value.cget("wraplength")) != wraplength:
+                value.configure(wraplength=wraplength)
 
     def _on_mousewheel(self, event):
         x = self.canvas.winfo_rootx()
@@ -686,7 +1005,10 @@ class GameLauncherWindow(tk.Tk):
             games.sort(key=lambda game: game.name.casefold())
 
         self.count_label.configure(
-            text=f"{len(games)} of {len(self.games)} games")
+            text=(f"Found {len(games)} "
+                  f"{'game' if len(games) == 1 else 'games'}"
+                  if len(games) == len(self.games)
+                  else f"Showing {len(games)} of {len(self.games)} games"))
         if not games:
             if self._scan_error:
                 message = self.ui_text["scan_error"]
@@ -715,7 +1037,7 @@ class GameLauncherWindow(tk.Tk):
             max(MIN_CARD_WIDTH, (usable_width - CARD_GAP
                                 * (self.columns - 1)) // self.columns),
         )
-        self.card_height = self.icon_size + 156
+        self.card_height = self.icon_size + 168
         rows = math.ceil(len(games) / self.columns)
         height = CARD_INSET + rows * (self.card_height + CARD_GAP)
         self._set_grid_size(width, height)
@@ -784,7 +1106,7 @@ class GameLauncherWindow(tk.Tk):
         icon_holder = tk.Frame(
             card, bg=self.colors["icon_tile"],
             width=self.icon_size, height=self.icon_size)
-        icon_holder.pack(pady=(12, 8))
+        icon_holder.pack(pady=(15, 9))
         icon_holder.pack_propagate(False)
         icon_label = tk.Label(
             icon_holder, bg=self.colors["icon_tile"], borderwidth=0)
@@ -796,16 +1118,16 @@ class GameLauncherWindow(tk.Tk):
             wraplength=self.card_width - 24,
             height=2,
             justify="center",
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Semibold", 11),
         )
         name_label.pack(fill="x", padx=10)
         size_label = tk.Label(
             card,
             fg=self.colors["accent"],
             bg=self.colors["badge"],
-            padx=9,
-            pady=3,
-            font=("Segoe UI", 8, "bold"),
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
         )
         size_label.pack(pady=(5, 8))
 
@@ -824,20 +1146,39 @@ class GameLauncherWindow(tk.Tk):
             command=lambda game_key=key: self._launch_by_key(game_key),
         ).pack(side="left", fill="x", expand=True, padx=(4, 0))
 
-        def set_card_color(color):
+        def set_card_color(hovered=False):
+            selected = (
+                self._selected_game is not None
+                and self._game_key(self._selected_game) == key
+            )
+            color = (
+                self.colors["card_hover"]
+                if hovered or selected else self.colors["card"]
+            )
             card.configure(
-                bg=color, highlightbackground=self.colors["border"])
+                bg=color,
+                highlightbackground=(
+                    self.colors["accent"]
+                    if hovered or selected else self.colors["border"]),
+            )
             icon_label.configure(bg=self.colors["icon_tile"])
             icon_holder.configure(bg=self.colors["icon_tile"])
             name_label.configure(bg=color)
             actions.configure(bg=color)
 
-        for widget in (card, icon_label, name_label, size_label, actions):
+        def update_hover(event):
+            x, y = event.x_root, event.y_root
+            inside = (
+                card.winfo_rootx() <= x < card.winfo_rootx() + card.winfo_width()
+                and card.winfo_rooty() <= y < card.winfo_rooty() + card.winfo_height()
+            )
+            set_card_color(inside)
+
+        for widget in (
+                card, icon_holder, icon_label, name_label, size_label, actions):
             widget.bind(
-                "<Enter>",
-                lambda *_: set_card_color(self.colors["card_hover"]))
-            widget.bind(
-                "<Leave>", lambda *_: set_card_color(self.colors["card"]))
+                "<Enter>", update_hover)
+            widget.bind("<Leave>", update_hover)
         return {
             "card": card,
             "icon": icon_label,
@@ -888,7 +1229,7 @@ class GameLauncherWindow(tk.Tk):
 
     def _build_details_panel(self) -> None:
         header = tk.Frame(self.details_panel, bg=self.colors["surface"])
-        header.pack(fill="x", pady=(0, 18))
+        header.pack(fill="x", pady=(0, 14))
         tk.Label(
             header, text=self.ui_text["details_heading"],
             fg=self.colors["accent"], bg=self.colors["surface"],
@@ -900,9 +1241,9 @@ class GameLauncherWindow(tk.Tk):
         ).pack(side="right")
 
         identity = tk.Frame(self.details_panel, bg=self.colors["surface"])
-        identity.pack(fill="x", pady=(0, 18))
+        identity.pack(fill="x", pady=(0, 14))
         icon_holder = tk.Frame(
-            identity, bg=self.colors["icon_tile"], width=72, height=72)
+            identity, bg=self.colors["icon_tile"], width=80, height=80)
         icon_holder.pack(side="left", padx=(0, 14))
         icon_holder.pack_propagate(False)
         self.details_icon = tk.Label(
@@ -912,31 +1253,40 @@ class GameLauncherWindow(tk.Tk):
         self.detail_name = tk.Label(
             identity, text="", fg=self.colors["text"],
             bg=self.colors["surface"], wraplength=190, height=3,
-            justify="left", anchor="w", font=("Segoe UI Semibold", 16),
+            justify="left", anchor="w", font=("Segoe UI Semibold", 17),
         )
         self.detail_name.pack(side="left", fill="x", expand=True)
-        self.details_text = tk.Text(
-            self.details_panel,
-            height=14,
-            wrap="word",
-            bg=self.colors["surface"],
-            fg=self.colors["text"],
-            insertbackground=self.colors["text"],
-            selectbackground=self.colors["button_hover"],
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            font=("Segoe UI", 9),
-            padx=0,
-            pady=0,
-            state="disabled",
-        )
-        self.details_text.tag_configure(
-            "heading",
-            foreground=self.colors["muted"],
-            font=("Segoe UI", 8, "bold"))
-        self.details_text.pack(fill="x", anchor="nw")
-        self._details_content = ""
+        details_body = tk.Frame(self.details_panel, bg=self.colors["surface"])
+        details_body.pack(fill="both", expand=True)
+        self.detail_values = []
+        for index, heading in enumerate((
+                "FOLDER SIZE", "EXECUTABLE SIZE", "MODIFIED",
+                "GAME FOLDER", "EXECUTABLE")):
+            section = tk.Frame(details_body, bg=self.colors["surface"])
+            section.pack(fill="x", pady=(0, 4))
+            if index:
+                tk.Frame(
+                    section, bg=self.colors["border"], height=1,
+                ).pack(fill="x", pady=(0, 4))
+            tk.Label(
+                section,
+                text=heading,
+                fg=self.colors["muted"],
+                bg=self.colors["surface"],
+                font=("Segoe UI", 8, "bold"),
+            ).pack(anchor="w")
+            value = tk.Label(
+                section,
+                text="",
+                fg=self.colors["text"],
+                bg=self.colors["surface"],
+                wraplength=190,
+                justify="left",
+                anchor="w",
+                font=("Segoe UI", 9),
+            )
+            value.pack(fill="x", anchor="w", pady=(2, 0))
+            self.detail_values.append(value)
         actions = tk.Frame(
             self.details_panel, bg=self.colors["surface"])
         actions.pack(fill="x", side="bottom", pady=(16, 0))
@@ -949,6 +1299,10 @@ class GameLauncherWindow(tk.Tk):
             command=self._launch_selected_game,
         ).pack(fill="x")
         self._selected_game = None
+
+    def _refresh_card_selection(self) -> None:
+        for widgets in self.card_widgets.values():
+            widgets["set_color"]()
 
     def _show_details(self, game: GameEntry) -> None:
         self._selected_game = game
@@ -981,20 +1335,9 @@ class GameLauncherWindow(tk.Tk):
             ("GAME FOLDER", str(game.folder)),
             ("EXECUTABLE", str(game.executable)),
         )
-        content = "\n\n".join(
-            f"{heading}\n{value}" for heading, value in details) + "\n"
-        if content != self._details_content:
-            self.details_text.configure(state="normal")
-            self.details_text.replace("1.0", "end", content)
-            self.details_text.tag_remove("heading", "1.0", "end")
-            offset = 0
-            for heading, value in details:
-                start = f"1.0 + {offset} chars"
-                end = f"1.0 + {offset + len(heading)} chars"
-                self.details_text.tag_add("heading", start, end)
-                offset += len(heading) + 1 + len(value) + 2
-            self.details_text.configure(state="disabled")
-            self._details_content = content
+        for value_label, (_, value) in zip(self.detail_values, details):
+            value_label.configure(text=value)
+        self._refresh_card_selection()
         self._set_details_panel_width(self.winfo_width())
         if self.details_panel.winfo_manager() != "grid":
             library = self.details_panel.master
@@ -1007,6 +1350,8 @@ class GameLauncherWindow(tk.Tk):
     def _hide_details(self) -> None:
         self.details_panel.grid_remove()
         self.details_panel.master.grid_columnconfigure(2, minsize=0)
+        self._selected_game = None
+        self._refresh_card_selection()
 
     def _open_selected_folder(self) -> None:
         if self._selected_game is not None:

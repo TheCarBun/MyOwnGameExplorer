@@ -160,15 +160,15 @@
       "card": "#FFFFFF",
       "card_hover": "#EDF2F8",
       "text": "#172033",
-      "muted": "#738197",
-      "accent": "#635BDB",
+      "muted": "#5F6F87",
+      "accent": "#5A52CB",
       "icon_tile": "#EEF0FF",
       "badge": "#E8E7FF",
       "button": "#E8ECF3",
       "button_hover": "#DCE3ED",
       "button_disabled": "#F0F2F5",
       "accent_text": "#FFFFFF",
-      "accent_hover": "#5148C7",
+      "accent_hover": "#4941B4",
       "border": "#DCE3ED"
     },
     "Light": {
@@ -177,15 +177,15 @@
       "card": "#fbfcfd",
       "card_hover": "#e9eff4",
       "text": "#1b2733",
-      "muted": "#617384",
-      "accent": "#168c68",
+      "muted": "#5D6E7F",
+      "accent": "#117553",
       "icon_tile": "#e6edf2",
       "badge": "#d9eee6",
       "button": "#e3eaf0",
       "button_hover": "#d3dfe8",
       "button_disabled": "#edf1f4",
       "accent_text": "#f7fffb",
-      "accent_hover": "#27a27d",
+      "accent_hover": "#0D654A",
       "border": "#cbd6df"
     }
   }

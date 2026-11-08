@@ -88,7 +88,6 @@ def main():
             app.set_scan_error(str(error))
         else:
             app.set_games(games)
-            app.set_status(f"Found {len(games)} games")
             log.info("Found %d games", len(games))
         app.after(100, poll_scan_results)
 
