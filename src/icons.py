@@ -23,12 +23,9 @@ def clear_icon_cache():
     _photo_cache.clear()
 
 
-def _cache_path(exe_path, size, background):
+def _cache_path(exe_path, size):
     exe_path = Path(exe_path)
-    identity = (
-        "tile-v3:" + background + ":" + os.path.normcase(
-            str(exe_path.resolve()))
-    )
+    identity = "icon-v4:" + os.path.normcase(str(exe_path.resolve()))
     try:
         stat = exe_path.stat()
         identity += f":{stat.st_size}:{stat.st_mtime_ns}"
@@ -38,7 +35,7 @@ def _cache_path(exe_path, size, background):
     return CACHE_DIR / f"{key}_{size}.png"
 
 
-def _normalize_icon(img, size, background):
+def _normalize_icon(img, size):
     img = img.convert("RGBA")
     alpha_bounds = img.getchannel("A").getbbox()
     if alpha_bounds:
@@ -46,9 +43,7 @@ def _normalize_icon(img, size, background):
 
     content = ImageOps.contain(
         img, (max(1, size - 16), max(1, size - 16)), Image.Resampling.LANCZOS)
-    background_rgb = tuple(
-        int(background[index:index + 2], 16) for index in (1, 3, 5))
-    tile = Image.new("RGBA", (size, size), (*background_rgb, 255))
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     position = ((size - content.width) // 2, (size - content.height) // 2)
     tile.alpha_composite(content, position)
     return tile
@@ -63,8 +58,8 @@ def _extract_pil_icon(exe_path):
         return None
 
 
-def get_icon_image(exe_path, size=128, background="#273342"):
-    cached = _cache_path(exe_path, size, background)
+def get_icon_image(exe_path, size=128):
+    cached = _cache_path(exe_path, size)
     cache_key = str(cached)
     if cache_key in _photo_cache:
         return _photo_cache[cache_key]
@@ -80,7 +75,7 @@ def get_icon_image(exe_path, size=128, background="#273342"):
             log.warning("No usable icon in %s, using placeholder",
                         Path(exe_path).name)
             img = PLACEHOLDER.copy()
-        img = _normalize_icon(img, size, background)
+        img = _normalize_icon(img, size)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         img.save(cached)
 

@@ -486,13 +486,6 @@ class GameLauncherWindow(tk.Tk):
         self.configure(bg=colors["background"])
         self._setup_styles()
         self._recolor_widgets(self, color_map)
-        games_by_key = {
-            self._game_key(game): game for game in self.games
-        }
-        for key in self.card_widgets:
-            self._update_card(key, games_by_key[key], refresh_icon=True)
-        if self._selected_game is not None:
-            self._show_details(self._selected_game)
         self._save_settings(force=True)
 
     def _recolor_widgets(self, parent, color_map):
@@ -868,8 +861,7 @@ class GameLauncherWindow(tk.Tk):
         if refresh_icon or widgets.get("icon_size") != self.icon_size:
             try:
                 photo = get_icon_image(
-                    game.executable, self.icon_size,
-                    background=self.colors["icon_tile"])
+                    game.executable, self.icon_size)
             except (OSError, ValueError, tk.TclError):
                 log.exception("Unable to load icon for %s", game.executable)
                 photo = None
@@ -963,8 +955,7 @@ class GameLauncherWindow(tk.Tk):
             self.detail_name.configure(text=game.name)
         try:
             photo = get_icon_image(
-                game.executable, 72,
-                background=self.colors["icon_tile"])
+                game.executable, 72)
         except (OSError, ValueError, tk.TclError):
             log.exception("Unable to load details icon for %s",
                           game.executable)
