@@ -168,7 +168,7 @@ class GameLauncherWindow(tk.Tk):
         self._setup_styles()
         self._build_layout()
         self._update_app_icon()
-        self.after_idle(self._apply_title_bar_theme)
+        self.bind("<Map>", self._on_window_map, add="+")
         if games:
             self.set_games(games)
         else:
@@ -849,6 +849,10 @@ class GameLauncherWindow(tk.Tk):
             DWMWA_CAPTION_COLOR, colorref(self.colors["background"]))
         set_attribute(DWMWA_TEXT_COLOR, colorref(self.colors["text"]))
         set_attribute(DWMWA_BORDER_COLOR, colorref(self.colors["border"]))
+
+    def _on_window_map(self, event):
+        if event.widget is self:
+            self._apply_title_bar_theme()
 
     def _recolor_widgets(self, parent, color_map):
         color_options = (
