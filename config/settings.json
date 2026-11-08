@@ -1,7 +1,8 @@
 {
+  "games_root": "D:\\Games",
   "window_size": [
-    1536,
-    753
+    1920,
+    1009
   ],
   "sort_order": "Name (A-Z)"
 }

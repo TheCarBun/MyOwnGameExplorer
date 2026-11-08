@@ -5,6 +5,7 @@ import sys
 import threading
 from pathlib import Path
 
+from app_paths import APP_DIR
 from logger import get_logger
 from models import GameEntry
 from scan import find_games, get_product_name
@@ -12,7 +13,6 @@ from icons import clear_icon_cache
 from gui import GameLauncherWindow
 
 log = get_logger("main")
-GAMES_ROOT = pathlib.Path("D:/Games")
 
 
 def handle_uncaught(exc_type, exc_value, exc_tb):
@@ -46,7 +46,6 @@ def _folder_size(folder: Path) -> int:
 
 def main():
     sys.excepthook = handle_uncaught
-    log.info("Starting launcher for %s", GAMES_ROOT)
     scan_results = queue.Queue()
     scan_running = False
 
@@ -63,13 +62,15 @@ def main():
                 return
         scan_running = True
         app.set_scanning(True)
+        games_root = app.games_root
 
         def scan_worker():
             try:
-                scan_results.put((load_games(GAMES_ROOT, force_refresh), None))
+                scan_results.put((
+                    games_root, load_games(games_root, force_refresh), None))
             except Exception as exc:
                 log.exception("Game scan failed")
-                scan_results.put((None, exc))
+                scan_results.put((games_root, None, exc))
 
         threading.Thread(
             target=scan_worker, daemon=True, name="GameScanner").start()
@@ -77,12 +78,17 @@ def main():
     def poll_scan_results():
         nonlocal scan_running
         try:
-            games, error = scan_results.get_nowait()
+            scanned_root, games, error = scan_results.get_nowait()
         except queue.Empty:
             app.after(100, poll_scan_results)
             return
 
         scan_running = False
+        if scanned_root != app.games_root:
+            log.info("Discarding stale scan results for %s", scanned_root)
+            start_scan()
+            app.after(100, poll_scan_results)
+            return
         app.set_scanning(False)
         if error is not None:
             app.set_scan_error(str(error))
@@ -91,7 +97,12 @@ def main():
             log.info("Found %d games", len(games))
         app.after(100, poll_scan_results)
 
-    app = GameLauncherWindow([], on_refresh=lambda: start_scan(True))
+    app = GameLauncherWindow(
+        [],
+        on_refresh=lambda: start_scan(True),
+        on_games_root_change=start_scan,
+    )
+    log.info("Starting launcher from %s; scanning %s", APP_DIR, app.games_root)
     app.after(0, start_scan)
     app.after(100, poll_scan_results)
     app.mainloop()

@@ -6,11 +6,12 @@ from pathlib import Path
 from PIL import Image, ImageOps, ImageTk
 from icoextract import IconExtractor, IconExtractorError
 
+from app_paths import CACHE_DIR
 from logger import get_logger
 
 log = get_logger("icons")
 
-CACHE_DIR = Path(__file__).parent.parent / "cache" / "icons"
+ICON_CACHE_DIR = CACHE_DIR / "icons"
 
 # Used when an exe has no icon resource at all
 PLACEHOLDER = Image.new("RGBA", (128, 128), (60, 60, 60, 255))
@@ -18,8 +19,8 @@ _photo_cache = {}
 
 
 def clear_icon_cache():
-    if CACHE_DIR.exists():
-        shutil.rmtree(CACHE_DIR)
+    if ICON_CACHE_DIR.exists():
+        shutil.rmtree(ICON_CACHE_DIR)
     _photo_cache.clear()
 
 
@@ -32,7 +33,7 @@ def _cache_path(exe_path, size):
     except OSError:
         identity += ":missing"
     key = hashlib.md5(identity.encode("utf-8")).hexdigest()
-    return CACHE_DIR / f"{key}_{size}.png"
+    return ICON_CACHE_DIR / f"{key}_{size}.png"
 
 
 def _normalize_icon(img, size):
@@ -76,7 +77,7 @@ def get_icon_image(exe_path, size=128):
                         Path(exe_path).name)
             img = PLACEHOLDER.copy()
         img = _normalize_icon(img, size)
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        ICON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         img.save(cached)
 
     photo = ImageTk.PhotoImage(img)

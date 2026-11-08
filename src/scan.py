@@ -2,10 +2,11 @@ import json
 import os
 import pathlib
 import win32api
+from app_paths import CACHE_DIR
 from logger import get_logger
 
 log = get_logger("scan")
-CACHE_PATH = pathlib.Path(__file__).parent.parent / "cache" / "scan_cache.json"
+CACHE_PATH = CACHE_DIR / "scan_cache.json"
 CACHE_VERSION = 2
 
 
@@ -141,5 +142,5 @@ def get_product_name(exe_path):
 
 
 if __name__ == "__main__":
-    for folder, exe in find_games(pathlib.Path('D:/Games')):
+    for folder, exe in find_games(pathlib.Path.home() / "Games"):
         print(f"{get_product_name(exe):<30} {exe}")

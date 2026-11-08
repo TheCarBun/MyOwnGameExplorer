@@ -9,10 +9,11 @@ import subprocess
 import sys
 import tkinter as tk
 from ctypes import wintypes
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from app_paths import CONFIG_DIR
 from icons import get_icon_image
 from logger import get_logger
 from models import GameEntry
@@ -44,7 +45,6 @@ SORT_OPTIONS = (
     "Size (largest)",
     "Size (smallest)",
 )
-CONFIG_DIR = pathlib.Path(__file__).parent.parent / "config"
 SETTINGS_CONFIG_PATH = CONFIG_DIR / "settings.json"
 TEXT_CONFIG_PATH = CONFIG_DIR / "text.json"
 THEME_CONFIG_PATH = CONFIG_DIR / "theme.json"
@@ -53,6 +53,7 @@ DEFAULT_UI_TEXT = {
     "heading": "Your library",
     "subtitle": "All your games, ready when you are.",
     "refresh_button": "Refresh library",
+    "choose_folder_button": "Choose games folder",
     "scanning_button": "Scanning...",
     "scan_status": "Scanning your game folders...",
     "sort_label": "SORT BY",
@@ -119,9 +120,11 @@ def format_size(size_bytes: int) -> str:
 class GameLauncherWindow(tk.Tk):
     def __init__(
             self, games: Sequence[GameEntry],
-            on_refresh: Callable[[], None]) -> None:
+            on_refresh: Callable[[], None],
+            on_games_root_change: Callable[[], None]) -> None:
         super().__init__()
         self._settings = self._load_settings()
+        self.games_root = pathlib.Path(self._settings["games_root"])
         self.ui_text = self._settings["ui"]["text"]
         self.colors = self._settings["ui"]["themes"][
             self._settings["ui"]["theme"]]
@@ -129,6 +132,7 @@ class GameLauncherWindow(tk.Tk):
         self.configure(bg=self.colors["background"])
         self.games = []
         self.on_refresh = on_refresh
+        self.on_games_root_change = on_games_root_change
         self.card_widgets = {}
         self._search_index = {}
         self._visible_card_keys = set()
@@ -364,6 +368,14 @@ class GameLauncherWindow(tk.Tk):
             command=self.on_refresh,
         )
         self.refresh_button.pack(side="right", anchor="center")
+        self.choose_folder_button = ttk.Button(
+            self.header,
+            text=self.ui_text["choose_folder_button"],
+            style="Launcher.TButton",
+            command=self._choose_games_folder,
+        )
+        self.choose_folder_button.pack(
+            side="right", anchor="center", padx=(0, 8))
 
         toolbar = tk.Frame(content, bg=self.colors["background"])
         toolbar.pack(fill="x", pady=(0, 16))
@@ -558,6 +570,14 @@ class GameLauncherWindow(tk.Tk):
 
     def _load_settings(self):
         settings = _read_config(SETTINGS_CONFIG_PATH)
+        games_root = settings.get("games_root")
+        if isinstance(games_root, str) and games_root.strip():
+            settings["games_root"] = str(
+                pathlib.Path(games_root).expanduser())
+        else:
+            if games_root is not None:
+                log.warning("Ignoring invalid games_root setting")
+            settings["games_root"] = str(pathlib.Path.home() / "Games")
         size = settings.get("window_size")
         if (isinstance(size, list) and len(size) == 2
                 and all(type(value) is int and value > 0 for value in size)):
@@ -617,9 +637,35 @@ class GameLauncherWindow(tk.Tk):
             return
         if self._expected_window_size == tuple(size) and not force:
             return
-        settings = {"window_size": size, "sort_order": self.sort_var.get()}
+        settings = {
+            "games_root": str(self.games_root),
+            "window_size": size,
+            "sort_order": self.sort_var.get(),
+        }
         if _write_config(SETTINGS_CONFIG_PATH, settings):
             self._expected_window_size = tuple(size)
+
+    def _choose_games_folder(self):
+        initial_dir = (
+            self.games_root if self.games_root.is_dir()
+            else pathlib.Path.home())
+        selected = filedialog.askdirectory(
+            parent=self,
+            title=self.ui_text["choose_folder_button"],
+            initialdir=str(initial_dir),
+            mustexist=True,
+        )
+        if not selected:
+            return
+        games_root = pathlib.Path(selected)
+        if games_root == self.games_root:
+            return
+        self.games_root = games_root
+        self._settings["games_root"] = str(games_root)
+        settings = _read_config(SETTINGS_CONFIG_PATH)
+        settings["games_root"] = str(games_root)
+        _write_config(SETTINGS_CONFIG_PATH, settings)
+        self.on_games_root_change()
 
     def _on_theme_changed(self):
         theme = self.theme_var.get()

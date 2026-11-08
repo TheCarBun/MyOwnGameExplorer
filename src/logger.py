@@ -1,8 +1,8 @@
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
-LOG_DIR = Path(__file__).parent.parent / "logs"
+from app_paths import LOG_DIR
+
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "launcher.log"
 
