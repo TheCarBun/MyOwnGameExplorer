@@ -3,6 +3,10 @@
 A lightweight, portable Windows game launcher that scans a games folder,
 builds a searchable library, and lets you launch your games from one place.
 
+> I made this because these games were just unzipped files and not installed so windows wasn't returning anything when searched.
+>
+> - I also wanted to try the github releases and workflows. Glad I could do it both in the same project.
+
 [![Latest release](https://img.shields.io/github/v/release/TheCarBun/MyOwnGameExplorer?display_name=tag)](https://github.com/TheCarBun/MyOwnGameExplorer/releases/latest)
 [![Windows x64](https://img.shields.io/badge/platform-Windows%20x64-blue)](#download-and-run)
 [![Release workflow](https://github.com/TheCarBun/MyOwnGameExplorer/actions/workflows/release.yml/badge.svg)](https://github.com/TheCarBun/MyOwnGameExplorer/actions/workflows/release.yml)
@@ -60,6 +64,20 @@ container, so its game subfolders are scanned individually.
 
 The launcher caches scan results to make later scans faster. Use **Refresh
 library** to rescan after adding or changing games.
+
+### Recommended Games folder structure
+
+```text
+Games/                   # Your games folder
+├── Installers n Zips/   # Optional container for installers and ZIPs(ignored by the launcher)
+├── Game1/
+│   ├── game1.exe        # executable detected by the launcher
+│   └── ...              # Other game files
+├── Game2/
+│   ├── game2.exe        # executable detected by the launcher
+|   └──...               # Other game files
+└── ...                  # Other games
+```
 
 ## Portable data and configuration
 
