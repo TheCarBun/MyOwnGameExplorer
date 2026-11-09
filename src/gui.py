@@ -11,9 +11,10 @@ import tkinter as tk
 from ctypes import wintypes
 from tkinter import filedialog, ttk
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import ImageTk
 
 from app_paths import CONFIG_DIR
+from app_icon import create_app_icon
 from icons import get_icon_image
 from logger import get_logger
 from models import GameEntry
@@ -739,26 +740,7 @@ class GameLauncherWindow(tk.Tk):
                         pending.append(child)
 
     def _create_app_icon(self, size=48):
-        image = Image.new("RGBA", (size, size), self.colors["surface"])
-        draw = ImageDraw.Draw(image)
-        inset = max(1, size // 32)
-        draw.rounded_rectangle(
-            (inset, inset, size - inset - 1, size - inset - 1),
-            radius=size // 5,
-            fill=self.colors["icon_tile"],
-            outline=self.colors["border"],
-            width=max(1, size // 24),
-        )
-        center = size // 2
-        draw.polygon(
-            [
-                (center - size // 9, center - size // 5),
-                (center + size // 5, center),
-                (center - size // 9, center + size // 5),
-            ],
-            fill=self.colors["accent"],
-        )
-        return ImageTk.PhotoImage(image)
+        return ImageTk.PhotoImage(create_app_icon(size, self.colors))
 
     def _update_app_icon(self):
         self._app_icon = self._create_app_icon()
